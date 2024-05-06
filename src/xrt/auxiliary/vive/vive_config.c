@@ -441,6 +441,9 @@ vive_config_parse(struct vive_config *d, char *json_string, enum u_logging_level
 	           strcmp(d->firmware.model_number, "VIVE_Pro 2 MV") == 0) {
 		d->variant = VIVE_VARIANT_PRO2;
 		VIVE_DEBUG(d, "Found HTC Vive Pro 2 HMD");
+	} else if (strcmp(d->firmware.model_number, "REF-HMD") == 0) {
+		d->variant = VIVE_VARIANT_PRO2;
+		VIVE_DEBUG(d, "Found Pimax HMD (not further specified)");
 	} else {
 		VIVE_ERROR(d, "Failed to parse Vive HMD variant!\n\tfirmware.model_[number|name]: '%s'",
 		           d->firmware.model_number);
@@ -503,6 +506,32 @@ vive_config_parse(struct vive_config *d, char *json_string, enum u_logging_level
 
 		const cJSON *cameras_json = u_json_get(json, "tracked_cameras");
 		_get_cameras(d, cameras_json);
+	} break;
+
+	case VIVE_VARIANT_PIMAX: {
+		const cJSON *head = cJSON_GetObjectItemCaseSensitive(json, "head");
+		_get_pose_from_pos_x_z(head, &d->display.trackref);
+
+
+
+		const cJSON *imu = cJSON_GetObjectItemCaseSensitive(json, "imu");
+		_get_pose_from_pos_x_z(imu, &d->imu.trackref);
+
+		JSON_VEC3(imu, "acc_bias", &d->imu.acc_bias);
+		JSON_VEC3(imu, "acc_scale", &d->imu.acc_scale);
+		JSON_VEC3(imu, "gyro_bias", &d->imu.gyro_bias);
+
+		_get_lighthouse(d, json);
+
+		struct xrt_pose trackref_to_head;
+		struct xrt_pose imu_to_head;
+
+		math_pose_invert(&d->display.trackref, &trackref_to_head);
+		math_pose_transform(&trackref_to_head, &d->imu.trackref, &imu_to_head);
+
+		//d->display.rot[0]
+
+		d->display.imuref = imu_to_head;
 	} break;
 	default:
 		VIVE_ERROR(d, "Unknown Vive variant.");

@@ -485,6 +485,7 @@ if(XRT_BUILD_DRIVER_STEAMVR_LIGHTHOUSE)
 			aux_util
 			aux_math
 			aux_vive
+			aux_fixup
 			xrt-interfaces
 			xrt-external-openvr
 			xrt-external-cjson
