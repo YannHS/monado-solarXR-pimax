@@ -12,6 +12,17 @@
 #include "pimax.h"
 
 
+// forward declarations, these aren't needed anywhere else, so no need to put them into the header
+void pimax_8kx_get_display_sizes(struct pimax_device* dev, uint32_t* out_width, uint32_t* out_height);
+void pimax_5ks_get_display_sizes(struct pimax_device* dev, uint32_t* out_width, uint32_t* out_height);
+
+
+struct pimax_model_config model_configs[] = {
+    {L"Pimax P2A", "Pimax 5K Super", {pimax_5ks_get_display_sizes}},
+    {L"Pimax P2C", "Pimax 5K Super", {pimax_5ks_get_display_sizes}},
+    {L"Pimax P2N", "Pimax 8KX", {pimax_8kx_get_display_sizes}}
+};
+
 
 uint8_t pimax_packet_parallel_projections_off[64] = {
     0xF0, 0x00, 0x00, 0x13, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -48,6 +59,15 @@ pimax_get_view_poses(struct xrt_device *xdev,
                            struct xrt_space_relation *out_head_relation,
                            struct xrt_fov *out_fovs,
                            struct xrt_pose *out_poses);
+
+void pimax_8kx_get_display_sizes(struct pimax_device* dev, uint32_t* out_width, uint32_t* out_height){
+    *out_width = dev->device_config.upscaling ? 2160 : 3168;
+    *out_height = dev->device_config.upscaling ? 1440 : 2160;
+}
+void pimax_5ks_get_display_sizes(struct pimax_device* dev, uint32_t* out_width, uint32_t* out_height){
+    *out_width = 2560;
+    *out_height = 1440;
+}
 
 // the results don't exactly line up with what I get from the pimax software
 #define PIMAX_IPD_RAW_MAX 36526
@@ -160,6 +180,32 @@ long init_pimax8kx(struct fixup_context* ctx, struct fixup_func_list* funcs, str
 		U_LOG_E("Failed to open Pimax 8KX HID device");
 		return 0;
 	}
+
+    wchar_t buf[PIMAX_MODEL_NAME_LENGTH];
+    if(hid_get_product_string(dev->hid_dev, buf, ARRAY_SIZE(buf)) == -1){
+        U_LOG_E("Failed to retrieve HID model string!");
+        os_mutex_unlock(&dev->hid_mutex);
+        os_mutex_destroy(&dev->hid_mutex);
+        hid_close(dev->hid_dev);
+		free(dev);
+        return 0;
+    }
+    bool found_match = false;
+    // retrieve the model specific functions
+    for(size_t i = 0; i < ARRAY_SIZE(model_configs); i++){
+        if(wcsncmp(buf, model_configs[i].product_name, PIMAX_MODEL_NAME_LENGTH) == 0){
+            dev->model_funcs = &model_configs[i].funcs;
+            strncpy(dev->base.base.str, model_configs[i].display_name, 
+                (PIMAX_MODEL_NAME_LENGTH<XRT_DEVICE_NAME_LEN?PIMAX_MODEL_NAME_LENGTH:XRT_DEVICE_NAME_LEN)-1);
+                found_match = true;
+                break;
+        }
+    }
+    if(!found_match){
+        U_LOG_W("Could not find a matching model specific configuration for \"%ls\". Falling back to the first one in the list (please report this)", buf);
+    }
+
+
 	hid_send_feature_report(dev->hid_dev, pimax_packet_parallel_projections_off, sizeof(pimax_packet_parallel_projections_off));
 	hid_send_feature_report(dev->hid_dev, pimax_init2, sizeof(pimax_init2));
 	hid_send_feature_report(dev->hid_dev, pimax_hmd_power, sizeof(pimax_hmd_power));
@@ -170,7 +216,7 @@ long init_pimax8kx(struct fixup_context* ctx, struct fixup_func_list* funcs, str
 	xrtdev->destroy = pimax_destroy;
 	xrtdev->device_type = XRT_DEVICE_TYPE_HMD;
 	xrtdev->name = XRT_DEVICE_GENERIC_HMD;
-	strncpy(xrtdev->str, "Pimax 8KX", XRT_DEVICE_NAME_LEN);
+	//strncpy(xrtdev->str, "Pimax 8KX", XRT_DEVICE_NAME_LEN);
 	xrtdev->update_inputs = pimax_update_inputs;
 	xrtdev->hmd = U_TYPED_CALLOC(struct xrt_hmd_parts);
 	xrtdev->hmd->view_count = 2;
@@ -375,7 +421,7 @@ void pimax_fill_display(struct pimax_device* dev, int width, int height){
     hmd = dev->base.base.hmd;
     hmd->screens[0].w_pixels = 2*height;
     hmd->screens[0].h_pixels = width;
-    hmd->screens[0].nominal_frame_interval_ns = 110;   // TODO: use the actual refresh rate
+    hmd->screens[0].nominal_frame_interval_ns = OS_NS_PER_USEC*1000.*1000./110.;   // TODO: use the actual refresh rate
     for(int i = 0; i < 2; i++){
         hmd->views[i].viewport.w_pixels = height;
         hmd->views[i].viewport.h_pixels = width;
@@ -390,12 +436,6 @@ void pimax_fill_display(struct pimax_device* dev, int width, int height){
     }
 }
 
-void pimax_8kx_set_display_info(struct pimax_device* dev){
-    int width_px = dev->device_config.upscaling ? 2160 : 3168;
-    int height_px = dev->device_config.upscaling ? 1440 : 2160;
-    pimax_fill_display(dev, width_px, height_px);
-}
-
 void patch_pimax8kx(struct fixup_device* fdev, struct fixup_context* ctx, struct xrt_system_devices *xsysd){
     //if(devinfo->interface_number) return;
     U_LOG_D("Pimax 8KX patch\n");
@@ -408,7 +448,10 @@ void patch_pimax8kx(struct fixup_device* fdev, struct fixup_context* ctx, struct
     pimax_8kx_read_config(dev);
     os_mutex_unlock(&dev->hid_mutex);
 
-    pimax_8kx_set_display_info(dev);
+    uint32_t width, height;
+    dev->model_funcs->get_display_size(dev, &width, &height);
+    pimax_fill_display(dev, width, height);
+    //pimax_8kx_set_display_info(dev);
 
     // probably do some more checks to make sure this is actually the right HMD
 
