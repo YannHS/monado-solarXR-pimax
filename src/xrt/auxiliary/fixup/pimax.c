@@ -8,19 +8,22 @@
 #include "../../drivers/multi_wrapper/multi.h"
 
 #include "math/m_vec2.h"
+#include "math/m_api.h"
 
 #include "pimax.h"
+#include "pimax_projection.h"
 
 
 // forward declarations, these aren't needed anywhere else, so no need to put them into the header
-void pimax_8kx_get_display_sizes(struct pimax_device* dev, uint32_t* out_width, uint32_t* out_height);
-void pimax_5ks_get_display_sizes(struct pimax_device* dev, uint32_t* out_width, uint32_t* out_height);
+void pimax_8kx_get_display_props(struct pimax_device* dev, struct pimax_display_properties* out_props);
+void pimax_5ks_get_display_props(struct pimax_device* dev, struct pimax_display_properties* out_props);
 
 
 struct pimax_model_config model_configs[] = {
-    {L"Pimax P2A", "Pimax 5K Super", {pimax_5ks_get_display_sizes}},
-    {L"Pimax P2C", "Pimax 5K Super", {pimax_5ks_get_display_sizes}},
-    {L"Pimax P2N", "Pimax 8KX", {pimax_8kx_get_display_sizes}}
+    {L"Pimax P2EA", "Pimax 8K Plus", {pimax_5ks_get_display_props}},
+    {L"Pimax P2A", "Pimax 5K Super", {pimax_5ks_get_display_props}},
+    {L"Pimax P2C", "Pimax 5K Super", {pimax_5ks_get_display_props}},
+    {L"Pimax P2N", "Pimax 8KX", {pimax_8kx_get_display_props}}
 };
 
 
@@ -34,6 +37,14 @@ uint8_t pimax_packet_parallel_projections_off[64] = {
 
 uint8_t pimax_init2[64] = {
     0xF0, 0x00, 0x00, 0x0C, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x18, 0xf6, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+};
+
+uint8_t pimax_keepalive[64] = {
+    0xF0, 0x00, 0x00, 0x0d, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -51,6 +62,11 @@ uint8_t pimax_poll_freq[6] = {0x11, 0x00, 0x00, 0x0b, 0x10, 0x27};
 
 bool pimax_compute_distortion(
 	    struct xrt_device *xdev, uint32_t view, float u, float v, struct xrt_uv_triplet *out_result);
+
+bool pimax_compute_distortion2(
+	    struct xrt_device *xdev, uint32_t view, float u, float v, struct xrt_uv_triplet *out_result);
+
+
 static void
 pimax_get_view_poses(struct xrt_device *xdev,
                            const struct xrt_vec3 *default_eye_relation,
@@ -60,27 +76,39 @@ pimax_get_view_poses(struct xrt_device *xdev,
                            struct xrt_fov *out_fovs,
                            struct xrt_pose *out_poses);
 
-void pimax_8kx_get_display_sizes(struct pimax_device* dev, uint32_t* out_width, uint32_t* out_height){
-    *out_width = dev->device_config.upscaling ? 2160 : 3168;
-    *out_height = dev->device_config.upscaling ? 1440 : 2160;
-}
-void pimax_5ks_get_display_sizes(struct pimax_device* dev, uint32_t* out_width, uint32_t* out_height){
-    *out_width = 2560;
-    *out_height = 1440;
+void pimax_8kx_get_display_props(struct pimax_device* dev, struct pimax_display_properties* out_props){
+    out_props->pixels_width = dev->device_config.upscaling ? 2160 : 3168;
+    out_props->pixels_height = dev->device_config.upscaling ? 1440 : 2160;
+
+    out_props->size_in_meters.x = dev->device_config.upscaling ? 0.10206f : 0.099792f;
+    out_props->size_in_meters.y = 0.13608f/2.f;
+    out_props->nominal_frame_interval_ns = 1000.*1000.*1000./(dev->device_config.upscaling ? 110. : 90.);
 }
 
+void pimax_5ks_get_display_props(struct pimax_device* dev, struct pimax_display_properties* out_props){
+    out_props->pixels_width = 2160;
+    out_props->pixels_height = 1440;
+
+    out_props->size_in_meters.x = 0.10206f;
+    out_props->size_in_meters.y = 0.13608f/2.f;
+    out_props->nominal_frame_interval_ns = 1000.*1000.*1000./110.;
+}
+
+
 // the results don't exactly line up with what I get from the pimax software
-#define PIMAX_IPD_RAW_MAX 36526
-#define PIMAX_IPD_RAW_MIN 32940
-#define PIMAX_IPD_MIN 0.06
-#define PIMAX_IPD_MAX 0.07
+#define PIMAX_IPD_RAW_MAX 36648
+#define PIMAX_IPD_RAW_MIN 34557
+#define PIMAX_IPD_MIN 0.06043485552072525
+#define PIMAX_IPD_MAX 0.0670139342546463
+#define PIMAX_SEPARATION_MIN 0.08623039722442627
+#define PIMAX_SEPARATION_MAX 0.09301088005304337
 
 float pimax_8kx_ipd_from_raw(uint16_t raw){
     return PIMAX_IPD_MAX - (raw - PIMAX_IPD_RAW_MIN) * (PIMAX_IPD_MAX-PIMAX_IPD_MIN)/(PIMAX_IPD_RAW_MAX-PIMAX_IPD_RAW_MIN);
 }
 
 float pimax_8kx_lens_separation_from_raw(uint16_t raw){
-    return raw * (PIMAX_IPD_MAX-PIMAX_IPD_MIN)/(PIMAX_IPD_RAW_MAX-PIMAX_IPD_RAW_MIN);
+    return PIMAX_SEPARATION_MAX - (raw - PIMAX_IPD_RAW_MIN) * (PIMAX_SEPARATION_MAX-PIMAX_SEPARATION_MIN)/(PIMAX_IPD_RAW_MAX-PIMAX_IPD_RAW_MIN);
 }
 
 void pimax_8kx_read_config(struct pimax_device* dev){
@@ -95,7 +123,8 @@ void pimax_8kx_read_config(struct pimax_device* dev){
         return;
     } 
     dev->device_config.upscaling = buf[35] & 1;
-    dev->device_config.ipd = pimax_8kx_lens_separation_from_raw(*(uint16_t*)(&buf[36]));
+    dev->device_config.ipd = pimax_8kx_ipd_from_raw(*(uint16_t*)(&buf[36]));
+    dev->device_config.separation = pimax_8kx_lens_separation_from_raw(*(uint16_t*)(&buf[36]));
     U_LOG_D("IPD Set to %f", dev->device_config.ipd);
 }
 
@@ -124,9 +153,20 @@ void pimax_8kx_poll(struct pimax_device* dev){
 
     if(report_type == 238){
         // IPD Changed
-        dev->device_config.ipd = pimax_8kx_lens_separation_from_raw(*(uint16_t*)(&buf[4]));
+        dev->device_config.ipd = pimax_8kx_ipd_from_raw(*(uint16_t*)(&buf[4]));
+        dev->device_config.separation = pimax_8kx_lens_separation_from_raw(*(uint16_t*)(&buf[4]));
         U_LOG_D("IPD Set to %f", dev->device_config.ipd);
     }
+
+    if(dev->polls_since_last_keepalive > PIMAX_POLL_KEEPALIVE_WAIT_COUNT){
+        // send keepalive
+        dev->polls_since_last_keepalive = 0;
+        hid_send_feature_report(dev->hid_dev, pimax_keepalive, sizeof(pimax_keepalive));
+        U_LOG_D("keepalive");
+    }
+
+    dev->polls_since_last_keepalive = 0;
+
     os_mutex_unlock(&dev->hid_mutex);
 }
 
@@ -206,9 +246,10 @@ long init_pimax8kx(struct fixup_context* ctx, struct fixup_func_list* funcs, str
     }
 
 
+    hid_send_feature_report(dev->hid_dev, pimax_init2, sizeof(pimax_init2));
 	hid_send_feature_report(dev->hid_dev, pimax_packet_parallel_projections_off, sizeof(pimax_packet_parallel_projections_off));
-	hid_send_feature_report(dev->hid_dev, pimax_init2, sizeof(pimax_init2));
 	hid_send_feature_report(dev->hid_dev, pimax_hmd_power, sizeof(pimax_hmd_power));
+    hid_send_feature_report(dev->hid_dev, pimax_keepalive, sizeof(pimax_keepalive));
     os_mutex_unlock(&dev->hid_mutex);
 
 
@@ -222,10 +263,12 @@ long init_pimax8kx(struct fixup_context* ctx, struct fixup_func_list* funcs, str
 	xrtdev->hmd->view_count = 2;
 	xrtdev->hmd->distortion.models = XRT_DISTORTION_MODEL_COMPUTE;
 	xrtdev->hmd->distortion.preferred = XRT_DISTORTION_MODEL_COMPUTE;
-	xrtdev->compute_distortion = pimax_compute_distortion;
+	xrtdev->compute_distortion = pimax_compute_distortion2;
     // pure guesses, likely wrong
-    xrtdev->hmd->distortion.fov[0] = (struct xrt_fov){-1., 1., 0.8727, -0.8727};
-    xrtdev->hmd->distortion.fov[1] = (struct xrt_fov){-1., 1., 0.8727, -0.8727};
+    /*xrtdev->hmd->distortion.fov[0] = (struct xrt_fov){-1., 1., 0.8927, -0.8927};
+    xrtdev->hmd->distortion.fov[1] = (struct xrt_fov){-1., 1., 0.8927, -0.8927};*/
+    xrtdev->hmd->distortion.fov[0] = (struct xrt_fov){-1.0611, 1.0611, 0.9037, -0.9037};
+    xrtdev->hmd->distortion.fov[1] = (struct xrt_fov){-1.0611, 1.0611, 0.9037, -0.9037};
 
 	xrtdev->get_view_poses = pimax_get_view_poses;
 	xrtdev->hmd->blend_modes[0] = XRT_BLEND_MODE_OPAQUE;
@@ -246,6 +289,7 @@ long init_pimax8kx(struct fixup_context* ctx, struct fixup_func_list* funcs, str
      * Start the polling thread. Currently, this only handles IPD adjustments
      */
     dev->should_poll = true;
+    dev->polls_since_last_keepalive = 0;
     os_thread_init(&dev->poll_thread);
     os_thread_start(&dev->poll_thread, pimax_poll_thread_func, dev);
 
@@ -266,7 +310,7 @@ pimax_get_view_poses(struct xrt_device *xdev,
     struct pimax_device* dev = (struct pimax_device*)xdev; 
 
     struct  xrt_vec3 newEyeRelation = *default_eye_relation;
-    newEyeRelation.x = dev->device_config.ipd;
+    newEyeRelation.x = dev->device_config.separation;
 
     for (uint32_t i = 0; i < view_count && i < ARRAY_SIZE(xdev->hmd->views); i++) {
 		out_fovs[i] = xdev->hmd->distortion.fov[i];
@@ -295,10 +339,11 @@ pimax_get_view_poses(struct xrt_device *xdev,
     }
 
     //U_LOG_D("get view poses\n");
-    // canted displays, guessed based on housing angles
+    // canted displays, based on hmdgdb
     // ONLY WORKS IF LIGHTHOUSES ARE ON!!!
-    out_poses[0].orientation = (struct xrt_quat){0,0.1564345, 0, 0.9876883};
-    out_poses[1].orientation = (struct xrt_quat){0,-0.1564345, 0, 0.9876883};
+    
+    out_poses[0].orientation = (struct xrt_quat){0,0.173648, 0, 0.984808};
+    out_poses[1].orientation = (struct xrt_quat){0,-0.173648, 0, 0.984808};
 }
 
 
@@ -415,20 +460,22 @@ bool pimax_compute_distortion(
     return true;
 }
 
+
+
 // width and height here refer to how the displays are located in the hmd
-void pimax_fill_display(struct pimax_device* dev, int width, int height){
+void pimax_fill_display(struct pimax_device* dev,struct pimax_display_properties* display_props){
     struct xrt_hmd_parts* hmd;
     hmd = dev->base.base.hmd;
-    hmd->screens[0].w_pixels = 2*height;
-    hmd->screens[0].h_pixels = width;
-    hmd->screens[0].nominal_frame_interval_ns = OS_NS_PER_USEC*1000.*1000./110.;   // TODO: use the actual refresh rate
+    hmd->screens[0].w_pixels = 2*display_props->pixels_height;
+    hmd->screens[0].h_pixels = display_props->pixels_width;
+    hmd->screens[0].nominal_frame_interval_ns = display_props->nominal_frame_interval_ns;   // TODO: use the actual refresh rate
     for(int i = 0; i < 2; i++){
-        hmd->views[i].viewport.w_pixels = height;
-        hmd->views[i].viewport.h_pixels = width;
-        hmd->views[i].viewport.x_pixels = i * height;
+        hmd->views[i].viewport.w_pixels = display_props->pixels_height;
+        hmd->views[i].viewport.h_pixels = display_props->pixels_width;
+        hmd->views[i].viewport.x_pixels = i * display_props->pixels_height;
         hmd->views[i].viewport.y_pixels = 0;
-        hmd->views[i].display.w_pixels = width;
-        hmd->views[i].display.h_pixels = height;
+        hmd->views[i].display.w_pixels = display_props->pixels_width;
+        hmd->views[i].display.h_pixels = display_props->pixels_height;
         hmd->views[i].rot.v[0] = 0;
         hmd->views[i].rot.v[1] = i ? 1 : -1;
         hmd->views[i].rot.v[2] = i ? -1 : 1;
@@ -448,9 +495,9 @@ void patch_pimax8kx(struct fixup_device* fdev, struct fixup_context* ctx, struct
     pimax_8kx_read_config(dev);
     os_mutex_unlock(&dev->hid_mutex);
 
-    uint32_t width, height;
-    dev->model_funcs->get_display_size(dev, &width, &height);
-    pimax_fill_display(dev, width, height);
+    struct pimax_display_properties display_props;
+    dev->model_funcs->get_display_properties(dev, &display_props);
+    pimax_fill_display(dev, &display_props);
     //pimax_8kx_set_display_info(dev);
 
     // probably do some more checks to make sure this is actually the right HMD

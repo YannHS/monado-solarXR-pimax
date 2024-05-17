@@ -3,6 +3,7 @@ add_library(
 	fixup.c
 	pimax.c
 	fixup_list.c
+	pimax_projection.cpp
 	)
 target_link_libraries(
 	aux_fixup
@@ -15,3 +16,4 @@ target_link_libraries(
 		HIDAPI::hidapi
 	)
 target_include_directories(aux_fixup PRIVATE ${HIDAPI_INCLUDE_DIRS})
+target_include_directories(aux_fixup SYSTEM PRIVATE ${EIGEN3_INCLUDE_DIR})

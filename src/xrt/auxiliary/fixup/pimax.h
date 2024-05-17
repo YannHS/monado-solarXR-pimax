@@ -8,6 +8,7 @@
 
 #define PIMAX_POLL_TIMEOUT 5
 #define PIMAX_POLL_WAIT 10
+#define PIMAX_POLL_KEEPALIVE_WAIT_COUNT 50  // every x polls, send keepalive packets
 
 #define PIMAX_MODEL_NAME_LENGTH 32
 
@@ -16,11 +17,20 @@ void patch_pimax8kx(struct fixup_device* dev, struct fixup_context* ctx, struct 
 
 struct pimax_device;
 
+struct pimax_display_properties{
+    struct xrt_vec2 size_in_meters;
+    uint32_t pixels_width;
+    uint32_t pixels_height;
+    float nominal_frame_interval_ns;
+};
+
 typedef void(*pimax_display_size_func_t)(struct pimax_device* dev, uint32_t* out_width, uint32_t* out_height);
+typedef void(*pimax_display_get_props_func_t)(struct pimax_device* dev, struct pimax_display_properties* out_props);
 
 
 struct pimax_model_funcs{
-    pimax_display_size_func_t get_display_size;
+    //pimax_display_size_func_t get_display_size;
+    pimax_display_get_props_func_t get_display_properties;
 };
 
 struct pimax_model_config{
@@ -39,9 +49,11 @@ struct pimax_device{
     struct os_mutex hid_mutex;
     struct pimax_device_config{
         float ipd;
+        float separation;
         bool upscaling;
     } device_config;
 
     struct os_thread poll_thread;
     bool should_poll;
+    uint32_t polls_since_last_keepalive;
 };
