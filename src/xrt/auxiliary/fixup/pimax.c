@@ -162,10 +162,9 @@ void pimax_8kx_poll(struct pimax_device* dev){
         // send keepalive
         dev->polls_since_last_keepalive = 0;
         hid_send_feature_report(dev->hid_dev, pimax_keepalive, sizeof(pimax_keepalive));
-        U_LOG_D("keepalive");
     }
 
-    dev->polls_since_last_keepalive = 0;
+    dev->polls_since_last_keepalive++;
 
     os_mutex_unlock(&dev->hid_mutex);
 }
