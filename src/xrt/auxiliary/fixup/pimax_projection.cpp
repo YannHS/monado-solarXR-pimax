@@ -134,7 +134,9 @@ bool pimax_compute_distortion2(
     float vrealworld = (v-vcenter) * sizeInMeters.y;
     
     //float d = 0.05; // distance from eye to display (when looking straight), measurement/guess
-    float d = 0.071746735;  // also likely wrong
+    float d = 0.02516709 + sin(abs(angle))*(0.1f-dev->device_config.ipd)/2 + 0.018;
+    //U_LOG_D("d=%f", d);
+    //float d = 0.071746735;  // also likely wrong
     float common_d = (d+sin(angle)*urealworld);
     float u2 = (((cos(angle)*urealworld)/common_d*d) / sizeInMeters.x) + ucenter;
     float v2 = ((vrealworld/common_d)*d / sizeInMeters.y) + vcenter;
