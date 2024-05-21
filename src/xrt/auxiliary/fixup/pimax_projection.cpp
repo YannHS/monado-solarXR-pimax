@@ -55,6 +55,21 @@ float catmullRom_interpolate(int count, float* points, float pos){
 
 }
 
+// extremely simple and inefficient for now, could be much improved
+float catmullRom_inverse(int count, float* points, float pos){
+
+    float start = (pos-1.f) * 0.25f * (count-1);
+    float delta = pos - catmullRom_interpolate(count, points, pos);
+    int i;
+    for(i = 0; i < 100 && fabs(delta) > 1e-10; i++){
+        //U_LOG_D("(inverse(%f)): i=%d s=%f delta=%f", pos, i, start, delta);
+        start += delta * (count-1);
+        delta = pos - catmullRom_interpolate(count, points, start);
+    }
+    //U_LOG_D("Final delta: %f with %d iterations", delta, i);
+    return start;
+}
+
 void pimax_distort_spline(float u, float v, struct xrt_vec2 center, struct xrt_uv_triplet *result){
 
     const float common_factor_value = 0.5f / (1.0f + 0.3);
@@ -81,6 +96,8 @@ void pimax_distort_spline(float u, float v, struct xrt_vec2 center, struct xrt_u
     float r2 = m_vec2_dot(texCoord, texCoord);
     //float fact = interpolate_spline(pimax_8kx_spline_points, ARRAY_SIZE(pimax_8kx_spline_points), r);
     float fact = catmullRom_interpolate(18, pimax_8kx_spline_points, r2*17./(max_radius*max_radius)/*add divisor here*/);
+    //float inv = catmullRom_inverse(18,pimax_8kx_spline_points, fact);
+    //U_LOG_D("Inverse for %f was %f off of input %f", fact, (r2*17./(max_radius*max_radius))-inv, r2*17./(max_radius*max_radius));
     //U_LOG_D("Factor(r=%f)=%f\n", r2, fact);
 
     struct xrt_vec2 tc[3] = {{0, 0}, {0, 0}, {0, 0}};
@@ -117,20 +134,21 @@ bool pimax_compute_distortion2(
 
     struct xrt_vec2 sizeInMeters = props.size_in_meters;
     float gap = 0.0144;
-
+    float lensOffset = (0.1 - dev->device_config.separation) / 2.f;
+    float imageOffset = -0.004f;
 
     float angle = -10.f / (180.f/M_PI) * xdir;
-
     float width = sizeInMeters.x * abs(cos(angle));
     float centerOffset = (dev->device_config.separation - dev->device_config.ipd)/2;    // probably not exactly, but close
     float screenCenterOffset = (centerOffset / cos(angle)) / sizeInMeters.x;
     //U_LOG_D("Sep: %f IPD: %f width: %f Offset: %f",dev->device_config.separation, dev->device_config.ipd, width,  screenCenterOffset);
     xrt_vec2 center = {screenCenterOffset*xdir, 0.f};
+    float uOffset = imageOffset*cos(angle) / sizeInMeters.x * xdir;
 
     float ucenter = (center.x+1.f)/2.f;
     float vcenter = (center.y+1.f)/2.f;
 
-    float urealworld = (u-ucenter) * sizeInMeters.x - xdir*gap/2;
+    float urealworld = (u-ucenter) * sizeInMeters.x - xdir*lensOffset;
     float vrealworld = (v-vcenter) * sizeInMeters.y;
     
     //float d = 0.05; // distance from eye to display (when looking straight), measurement/guess
@@ -138,7 +156,7 @@ bool pimax_compute_distortion2(
     //U_LOG_D("d=%f", d);
     //float d = 0.071746735;  // also likely wrong
     float common_d = (d+sin(angle)*urealworld);
-    float u2 = (((cos(angle)*urealworld)/common_d*d) / sizeInMeters.x) + ucenter;
+    float u2 = (((cos(angle)*urealworld)/common_d*d) / sizeInMeters.x) + ucenter + uOffset;
     float v2 = ((vrealworld/common_d)*d / sizeInMeters.y) + vcenter;
     //U_LOG_D("U: %f U2: %f V: %f V2: %f", u, u2, v, v2);
 
