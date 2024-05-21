@@ -156,6 +156,12 @@ void pimax_8kx_poll(struct pimax_device* dev){
         dev->device_config.ipd = pimax_8kx_ipd_from_raw(*(uint16_t*)(&buf[4]));
         dev->device_config.separation = pimax_8kx_lens_separation_from_raw(*(uint16_t*)(&buf[4]));
         U_LOG_D("IPD Set to %f", dev->device_config.ipd);
+        if(dev->base.base.hmd->dist_update){
+            u_distortion_mesh_fill_in_compute(&dev->base.base);
+            dev->base.base.hmd->dist_update(&dev->base.base);
+        } else {
+            U_LOG_D("No distortion update function!");
+        }
     }
 
     if(dev->polls_since_last_keepalive > PIMAX_POLL_KEEPALIVE_WAIT_COUNT){
