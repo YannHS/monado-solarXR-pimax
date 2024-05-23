@@ -16,7 +16,9 @@ extern struct fixup_definition fixups[];
 
 void fixup_patch_devices(struct fixup_context* ctx, struct xrt_system_devices *xsysd){
     for(size_t i = 0; i < ctx->num_devices; i++){
-        ctx->devices[i]->fixup_funcs->patch(ctx->devices[i], ctx, xsysd);
+        if(ctx->devices[i]->fixup_funcs->patch){
+            ctx->devices[i]->fixup_funcs->patch(ctx->devices[i], ctx, xsysd);
+        }
     }
 
 }
@@ -36,12 +38,14 @@ struct fixup_context* fixup_init_devices(){
     ctx->num_devices = 0;
     long delay = 0;
     struct fixup_definition* def = fixups;
-    while(def->filter.vid != 0){
+    for(;def->filter.vid != 0;def++){
 
-    //for(size_t i = 0; i < ARRAY_SIZE(init_filters); i++){
-        //struct quirk_init_filter* init_filter = &init_filters[i];
+        if(!def->funcs.init){
+            continue;
+        }
+
         struct hid_device_info* devinfo = hid_enumerate(def->filter.vid, def->filter.pid);
-        if(!devinfo  || !def->funcs.init){
+        if(!devinfo){
             continue;
         }
         struct hid_device_info* current = devinfo;
@@ -49,7 +53,6 @@ struct fixup_context* fixup_init_devices(){
             delay = max_i(def->funcs.init(ctx, &def->funcs, current), delay);
             current = current->next;
         }
-        def += 1;
     }
     
     U_LOG_D("Waiting %ldms for devices to finish starting\n", delay);

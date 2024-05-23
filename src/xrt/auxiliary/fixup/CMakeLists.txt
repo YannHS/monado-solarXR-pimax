@@ -4,6 +4,7 @@ add_library(
 	pimax.c
 	fixup_list.c
 	pimax_projection.cpp
+	vp2.c
 	)
 target_link_libraries(
 	aux_fixup
