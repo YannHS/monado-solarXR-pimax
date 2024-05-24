@@ -119,6 +119,14 @@ void pimax_distort_spline(float u, float v, struct xrt_vec2 center, struct xrt_u
 }
 
 
+// rotation matrices would be a much nicer solution, but this works too (for now)
+float rotateU(float u, float d, float phi){
+    return (cosf(phi)*u)/(d + sin(phi)*u)*d;
+}
+
+float rotateV(float u, float v, float d, float phi){
+    return v/(d + sin(phi)*u) * d;
+}
 
 
 extern "C"{
@@ -138,17 +146,25 @@ bool pimax_compute_distortion2(
     float imageOffset = -0.004f;
 
     float angle = -10.f / (180.f/M_PI) * xdir;
+    float lense_angle = 4.f / (180.f/M_PI) * xdir;
+    float relief = 0.018f;
+
+
+
+    float aspect = (xdev->hmd->distortion.fov[view].angle_right -xdev->hmd->distortion.fov[view].angle_left) / (xdev->hmd->distortion.fov[view].angle_up -xdev->hmd->distortion.fov[view].angle_down);
+    //U_LOG_D("Aspect ratio: %f", aspect);
+
     float width = sizeInMeters.x * abs(cos(angle));
     float centerOffset = (dev->device_config.separation - dev->device_config.ipd)/2;    // probably not exactly, but close
     float screenCenterOffset = (centerOffset / cos(angle)) / sizeInMeters.x;
     //U_LOG_D("Sep: %f IPD: %f width: %f Offset: %f",dev->device_config.separation, dev->device_config.ipd, width,  screenCenterOffset);
     xrt_vec2 center = {screenCenterOffset*xdir, 0.f};
-    float uOffset = imageOffset*cos(angle) / sizeInMeters.x * xdir;
+    float uOffset = imageOffset*cos(angle) * xdir;// / sizeInMeters.x;
 
     float ucenter = (center.x+1.f)/2.f;
     float vcenter = (center.y+1.f)/2.f;
 
-    float urealworld = (u-ucenter) * sizeInMeters.x - xdir*lensOffset;
+    float urealworld = (u-ucenter) * sizeInMeters.x - xdir*lensOffset + uOffset;
     float vrealworld = (v-vcenter) * sizeInMeters.y;
     
     //float d = 0.05; // distance from eye to display (when looking straight), measurement/guess
@@ -156,12 +172,88 @@ bool pimax_compute_distortion2(
     //U_LOG_D("d=%f", d);
     //float d = 0.071746735;  // also likely wrong
     float common_d = (d+sin(angle)*urealworld);
-    float u2 = (((cos(angle)*urealworld)/common_d*d) / sizeInMeters.x) + ucenter + uOffset;
-    float v2 = ((vrealworld/common_d)*d / sizeInMeters.y) + vcenter;
+    float u_rotated = rotateU(urealworld, d, angle);
+    float v_rotated = rotateV(urealworld, vrealworld, d, angle);
+    //float u2 = (((cos(angle)*urealworld)/common_d*d) / sizeInMeters.x) + ucenter + uOffset;
+    float u2 = (u_rotated / sizeInMeters.x) + ucenter;
+    //float v2 = ((vrealworld/common_d)*d / sizeInMeters.y) + vcenter;
+    float v2 = (v_rotated / sizeInMeters.y) + vcenter;
     //U_LOG_D("U: %f U2: %f V: %f V2: %f", u, u2, v, v2);
 
-    pimax_distort_spline(u2,v2,center, out_result);
+    //pimax_distort_spline(u2,v2,center, out_result);
+
+
+
+    const float common_factor_value = 0.5f / (1.0f + 0.3);
+	const struct xrt_vec2 factor = {
+	    common_factor_value,
+	    common_factor_value * 1.5f,
+	};
+
+    struct xrt_vec2 texCoord = {
+	    2.f * u2 - 1.f,
+	    2.f * v2 - 1.f,
+	};
+    // no center/aspect ratio adjustment for now (will be needed though)
+
+    texCoord.y /= aspect;
+    texCoord.x -= center.x;
+    texCoord.y -= center.y;
+
+    struct xrt_vec2 lensCoord = {
+        2.f * (rotateU(u_rotated, relief, lense_angle) / sizeInMeters.x + ucenter) - 1.f,
+        2.f * (rotateV(u_rotated, v_rotated, relief, lense_angle) / sizeInMeters.y + vcenter) - 1.f,
+    };
+    lensCoord.y /= 1.5f;
+    lensCoord.x -= center.x;
+    lensCoord.y -= center.y;
+    //U_LOG_D("Lens %f:%f Tex %f:%f", lensCoord.x, lensCoord.y, texCoord.x, texCoord.y);
+
+    struct xrt_vec2 offset = m_vec2_div_scalar(m_vec2_add_scalar(center, 1.f), 2.f);
+
+    float max_radius = 1.4757009417836655;
+
+    float r = m_vec2_len(texCoord);
+    float r2 = m_vec2_dot(lensCoord, lensCoord);
+    //float fact = interpolate_spline(pimax_8kx_spline_points, ARRAY_SIZE(pimax_8kx_spline_points), r);
+    float fact = catmullRom_interpolate(18, pimax_8kx_spline_points, r2*17./(max_radius*max_radius));
+    //float inv = catmullRom_inverse(18,pimax_8kx_spline_points, fact);
+    //U_LOG_D("Inverse for %f was %f off of input %f", fact, (r2*17./(max_radius*max_radius))-inv, r2*17./(max_radius*max_radius));
+    //U_LOG_D("Factor(r=%f)=%f\n", r2, fact);
+
+    struct xrt_vec2 tc[3] = {{0, 0}, {0, 0}, {0, 0}};
+    struct xrt_vec2 chroma[3] = {{pimax_8kx_chromatic_aberration[0], pimax_8kx_chromatic_aberration[1]}, {0.,0.}, {pimax_8kx_chromatic_aberration[2], pimax_8kx_chromatic_aberration[3]}};
+    for(int i = 0; i < 3; i++){
+        
+        float x = texCoord.x;
+        float y = texCoord.y;
+
+        float chromaFact = 1.f + chroma[i].x + r2 * chroma[i].y;
+
+        tc[i].x = offset.x + (x*fact) * factor.x * chromaFact;
+        tc[i].y = offset.y + (y*fact) * factor.y * chromaFact;
+    }
+    //U_LOG_D("%f:%f -> %f:%f",u,v,tc[0].x, tc[0].y);
+    out_result->r = tc[0];
+    out_result->g = tc[1];
+    out_result->b = tc[2];
+
 
     return true;
 }
+
+
+void pimax_compute_fovs(struct pimax_device* dev, struct xrt_fov* out_fov){
+    float base_separation = 0.1f;
+    float meters_per_tan_angle_at_center = 0.03919542;
+
+    float angle = -10.f / (180.f/M_PI);
+    float lense_angle = 4.f / (180.f/M_PI);
+    float relief = 0.018f; 
+
+    float sep_offset = base_separation - dev->device_config.ipd;
+    float d = 0.02516709 + sin(abs(angle))*(0.1f-dev->device_config.ipd)/2 + 0.018;
+}
+
+
 }
