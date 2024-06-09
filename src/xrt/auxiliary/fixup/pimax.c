@@ -13,6 +13,8 @@
 #include "pimax.h"
 #include "pimax_projection.h"
 
+#include "pimax_meshes.generated.h"
+
 
 // forward declarations, these aren't needed anywhere else, so no need to put them into the header
 void pimax_8kx_get_display_props(struct pimax_device* dev, struct pimax_display_properties* out_props);
@@ -103,13 +105,16 @@ void pimax_5ks_get_display_props(struct pimax_device* dev, struct pimax_display_
 #define PIMAX_SEPARATION_MIN 0.08623039722442627
 #define PIMAX_SEPARATION_MAX 0.09301088005304337
 
-float pimax_8kx_ipd_from_raw(uint16_t raw){
-    return PIMAX_IPD_MAX - (raw - PIMAX_IPD_RAW_MIN) * (PIMAX_IPD_MAX-PIMAX_IPD_MIN)/(PIMAX_IPD_RAW_MAX-PIMAX_IPD_RAW_MIN);
+float pimax_8kx_lens_separation_from_raw(int16_t raw){
+    //U_LOG_D("Raw: %d", raw);
+    return (raw < 0 ? (((raw & 0x7fff) * -0.168f) + 4960) : raw) / 50.f ;
 }
 
-float pimax_8kx_lens_separation_from_raw(uint16_t raw){
-    return PIMAX_SEPARATION_MAX - (raw - PIMAX_IPD_RAW_MIN) * (PIMAX_SEPARATION_MAX-PIMAX_SEPARATION_MIN)/(PIMAX_IPD_RAW_MAX-PIMAX_IPD_RAW_MIN);
+float pimax_8kx_ipd_from_raw(uint16_t raw){
+    //return PIMAX_IPD_MAX - (raw - PIMAX_IPD_RAW_MIN) * (PIMAX_IPD_MAX-PIMAX_IPD_MIN)/(PIMAX_IPD_RAW_MAX-PIMAX_IPD_RAW_MIN);
+    return pimax_8kx_lens_separation_from_raw(raw)/1000.f - 0.026f;
 }
+
 
 void pimax_8kx_read_config(struct pimax_device* dev){
     if(!dev->hid_dev){
@@ -126,8 +131,131 @@ void pimax_8kx_read_config(struct pimax_device* dev){
     dev->device_config.ipd = pimax_8kx_ipd_from_raw(*(uint16_t*)(&buf[36]));
     dev->device_config.separation = pimax_8kx_lens_separation_from_raw(*(uint16_t*)(&buf[36]));
     U_LOG_D("IPD Set to %f", dev->device_config.ipd);
+    U_LOG_D("Separation Set to %f", dev->device_config.separation);
 }
 
+struct xrt_uv_triplet uv_triplet_lerp(struct xrt_uv_triplet from, struct xrt_uv_triplet to, float amount){
+    struct xrt_uv_triplet out;
+    out.r = m_vec2_lerp(from.r, to.r, amount);
+    out.g = m_vec2_lerp(from.g, to.g, amount);
+    out.b = m_vec2_lerp(from.b, to.b, amount);
+    return out;
+}
+
+bool pimax_compute_distortion_from_mesh(
+	    struct xrt_device *xdev, uint32_t view, float u, float v, struct xrt_uv_triplet *out_result){
+
+    struct pimax_device* dev = (struct pimax_device*)xdev;
+    // first, find the two closest meshes, could also be done in the poll function (probably better)
+    int lower_mesh_idx = -1;
+    int upper_mesh_idx = -1;
+    // this assumes the entries are sorted with ascending lens separation
+    for(int i = PIMAX_MESH_COUNT - 1; i >= 0; i--){
+        //U_LOG_D("Mesh %d: %f (%f)", i, pimax_distortion_meshes[i].ipd, dev->device_config.separation/1000.f);
+        if(pimax_distortion_meshes[i].ipd < dev->device_config.separation/1000.f){
+            upper_mesh_idx = i;
+            if(i == 0){
+                if(PIMAX_MESH_COUNT > 1)
+                    upper_mesh_idx = 1;
+                lower_mesh_idx = 0;
+            } else {
+                lower_mesh_idx = i-1;
+            }
+            break;
+        }
+    }
+    if(lower_mesh_idx == -1 || upper_mesh_idx == -1){
+        //U_LOG_E("Could not find a distortion mesh for lens separation %fmm\n", dev->device_config.separation);
+        //return false;
+        lower_mesh_idx = upper_mesh_idx = PIMAX_MESH_COUNT - 1;
+        if(PIMAX_MESH_COUNT > 1)
+            lower_mesh_idx--;
+    }
+
+    //U_LOG_D("Between meshed %d and %d", lower_mesh_idx, upper_mesh_idx);
+
+    float range = pimax_distortion_meshes[upper_mesh_idx].ipd - pimax_distortion_meshes[lower_mesh_idx].ipd;
+    struct xrt_vec2 pos = {u*2.f - 1.f, v*2.f - 1.f};
+
+    int mesh_steps_u = 65;
+    int mesh_steps_v = 65;
+    int stride_in_floats = 8;
+
+    int base_index = view * mesh_steps_u * mesh_steps_v;
+
+    int v_lower = floor(u*(mesh_steps_u-1));
+    int v_upper = ceil(u*(mesh_steps_u-1));
+    int u_lower = floor(v*(mesh_steps_v-1));
+    int u_upper = ceil(v*(mesh_steps_v-1));
+
+    int idx_ulvl = base_index + v_lower*mesh_steps_u + u_lower;
+    int idx_uuvl = base_index + v_lower*mesh_steps_u + u_upper;
+    int idx_ulvu = base_index + v_upper*mesh_steps_u + u_lower;
+    int idx_uuvu = base_index + v_upper*mesh_steps_u + u_upper;
+    struct xrt_uv_triplet triplets[2];
+    for(int i = 0; i < 2; i++){
+
+        int mesh_idx = i ? upper_mesh_idx : lower_mesh_idx;
+
+        struct xrt_vec2 vec_ulvl = *(struct xrt_vec2*)(&pimax_distortion_meshes[mesh_idx].mesh[idx_ulvl * stride_in_floats]);
+        struct xrt_vec2 vec_uuvl = *(struct xrt_vec2*)(&pimax_distortion_meshes[mesh_idx].mesh[idx_uuvl * stride_in_floats]);
+        struct xrt_vec2 vec_ulvu = *(struct xrt_vec2*)(&pimax_distortion_meshes[mesh_idx].mesh[idx_ulvu * stride_in_floats]);
+        struct xrt_vec2 vec_uuvu = *(struct xrt_vec2*)(&pimax_distortion_meshes[mesh_idx].mesh[idx_uuvu * stride_in_floats]);
+
+        struct xrt_uv_triplet triplet_uvl;
+        struct xrt_uv_triplet triplet_uvu;
+        if(u_lower == u_upper){
+            triplet_uvl = *(struct xrt_uv_triplet*)(&pimax_distortion_meshes[mesh_idx].mesh[idx_uuvl * stride_in_floats + 2]);
+            triplet_uvu = *(struct xrt_uv_triplet*)(&pimax_distortion_meshes[mesh_idx].mesh[idx_uuvu * stride_in_floats + 2]);
+        } else {
+
+            struct xrt_uv_triplet triplet_ulvl = *(struct xrt_uv_triplet*)(&pimax_distortion_meshes[mesh_idx].mesh[idx_ulvl * stride_in_floats + 2]);
+            struct xrt_uv_triplet triplet_uuvl = *(struct xrt_uv_triplet*)(&pimax_distortion_meshes[mesh_idx].mesh[idx_uuvl * stride_in_floats + 2]);
+            struct xrt_uv_triplet triplet_ulvu = *(struct xrt_uv_triplet*)(&pimax_distortion_meshes[mesh_idx].mesh[idx_ulvu * stride_in_floats + 2]);
+            struct xrt_uv_triplet triplet_uuvu = *(struct xrt_uv_triplet*)(&pimax_distortion_meshes[mesh_idx].mesh[idx_uuvu * stride_in_floats + 2]);
+
+            // interpolate u first
+            float amount = (pos.x - vec_ulvl.x) / (vec_uuvl.x - vec_ulvl.x);
+            
+
+            triplet_uvl = uv_triplet_lerp(triplet_ulvl, triplet_uuvl, amount);
+            triplet_uvu = uv_triplet_lerp(triplet_ulvu, triplet_uuvu, amount);
+        }
+        if(v_upper == v_lower){
+            triplets[i] = triplet_uvl;
+        } else {
+            // now v
+            float amount = (pos.y - vec_ulvl.y) / (vec_uuvu.y - vec_ulvl.y);
+            triplets[i] = uv_triplet_lerp(triplet_uvl, triplet_uvu, amount);
+        }
+
+    }
+    if(upper_mesh_idx == lower_mesh_idx){
+        *out_result = triplets[0];    
+    } else {
+        float amount = (dev->device_config.separation / 1000.f - pimax_distortion_meshes[upper_mesh_idx].ipd) / range;
+        //U_LOG_D("mesh-to-mesh amount: %f %f - %f/%f", amount, dev->device_config.separation, pimax_distortion_meshes[upper_mesh_idx].ipd, range);
+        *out_result = uv_triplet_lerp(triplets[0], triplets[1], amount);
+    }
+
+    struct pimax_display_properties props;
+    dev->model_funcs->get_display_properties(dev, &props);
+    struct xrt_vec2 dist_viewport = {3414, 2106};
+    float display_scale_adjust = (dist_viewport.y / props.pixels_height) / (dist_viewport.x / props.pixels_width);
+    
+
+    out_result->r = m_vec2_add_scalar(out_result->r, 1.f);
+    out_result->r = m_vec2_mul_scalar(out_result->r, 0.5f);
+    out_result->g = m_vec2_add_scalar(out_result->g, 1.f);
+    out_result->g = m_vec2_mul_scalar(out_result->g, 0.5f);
+    out_result->b = m_vec2_add_scalar(out_result->b, 1.f);
+    out_result->b = m_vec2_mul_scalar(out_result->b, 0.5f);
+
+    
+    //U_LOG_D("%f:%f -> %f:%f", u, v, out_result->g.x, out_result->g.y);
+
+    return true;
+}
 
 void pimax_8kx_poll(struct pimax_device* dev){
     //U_LOG_D("Pimax poll");
@@ -156,6 +284,7 @@ void pimax_8kx_poll(struct pimax_device* dev){
         dev->device_config.ipd = pimax_8kx_ipd_from_raw(*(uint16_t*)(&buf[4]));
         dev->device_config.separation = pimax_8kx_lens_separation_from_raw(*(uint16_t*)(&buf[4]));
         U_LOG_D("IPD Set to %f", dev->device_config.ipd);
+        U_LOG_D("Separation Set to %f", dev->device_config.separation);
         if(dev->base.base.hmd->dist_update){
             if(dev->base.base.hmd->distortion.mesh.vertices){
                 free(dev->base.base.hmd->distortion.mesh.vertices);
@@ -263,6 +392,7 @@ long init_pimax8kx(struct fixup_context* ctx, struct fixup_func_list* funcs, str
 	hid_send_feature_report(dev->hid_dev, pimax_packet_parallel_projections_off, sizeof(pimax_packet_parallel_projections_off));
 	hid_send_feature_report(dev->hid_dev, pimax_hmd_power, sizeof(pimax_hmd_power));
     hid_send_feature_report(dev->hid_dev, pimax_keepalive, sizeof(pimax_keepalive));
+    pimax_8kx_read_config(dev);
     os_mutex_unlock(&dev->hid_mutex);
 
 
@@ -274,14 +404,12 @@ long init_pimax8kx(struct fixup_context* ctx, struct fixup_func_list* funcs, str
 	xrtdev->update_inputs = pimax_update_inputs;
 	xrtdev->hmd = U_TYPED_CALLOC(struct xrt_hmd_parts);
 	xrtdev->hmd->view_count = 2;
-	xrtdev->hmd->distortion.models = XRT_DISTORTION_MODEL_COMPUTE;
-	xrtdev->hmd->distortion.preferred = XRT_DISTORTION_MODEL_COMPUTE;
-	xrtdev->compute_distortion = pimax_compute_distortion2;
-    // pure guesses, likely wrong
-    /*xrtdev->hmd->distortion.fov[0] = (struct xrt_fov){-1., 1., 0.8927, -0.8927};
-    xrtdev->hmd->distortion.fov[1] = (struct xrt_fov){-1., 1., 0.8927, -0.8927};*/
-    xrtdev->hmd->distortion.fov[0] = (struct xrt_fov){-1.0611, 1.0611, 0.8537, -0.8537};
-    xrtdev->hmd->distortion.fov[1] = (struct xrt_fov){-1.0611, 1.0611, 0.8537, -0.8537};
+	xrtdev->hmd->distortion.models =  XRT_DISTORTION_MODEL_COMPUTE;
+	xrtdev->hmd->distortion.preferred =  XRT_DISTORTION_MODEL_COMPUTE;
+    xrtdev->compute_distortion = pimax_compute_distortion_from_mesh;
+
+    xrtdev->hmd->distortion.fov[0] = (struct xrt_fov){-1.224257374, 0.931880974, 0.9037, -0.9037};
+    xrtdev->hmd->distortion.fov[1] = (struct xrt_fov){-0.931880974, 1.224257374, 0.9037, -0.9037};
 
 	xrtdev->get_view_poses = pimax_get_view_poses;
 	xrtdev->hmd->blend_modes[0] = XRT_BLEND_MODE_OPAQUE;
@@ -352,11 +480,11 @@ pimax_get_view_poses(struct xrt_device *xdev,
     }
 
     //U_LOG_D("get view poses\n");
-    // canted displays, based on hmdgdb
+    // canted displays, based on PiTool 
     // ONLY WORKS IF LIGHTHOUSES ARE ON!!!
     
-    out_poses[0].orientation = (struct xrt_quat){0,0.173648, 0, 0.984808};
-    out_poses[1].orientation = (struct xrt_quat){0,-0.173648, 0, 0.984808};
+    out_poses[0].orientation = (struct xrt_quat){0,0.0871557, 0, 0.996195};
+    out_poses[1].orientation = (struct xrt_quat){0,-0.0871557, 0, 0.996195};
 }
 
 
