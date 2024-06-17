@@ -162,7 +162,7 @@ struct xrt_hmd_parts
 
 	} distortion;
 	// dirty stuff
-	void (*dist_update)(struct xrt_device* xdev);
+	bool (*dist_update)(struct xrt_device* xdev);
 };
 
 /*!
