@@ -2,6 +2,7 @@
 #include "fixup.h"
 
 #include "os/os_threading.h"
+#include "util/u_var.h"
 
 #define PIMAX_VID 0x0483
 #define PIMAX_8KX_PID 0x0101
@@ -51,9 +52,15 @@ struct pimax_device{
         float ipd;
         float separation;
         bool upscaling;
+        struct u_var_draggable_f32 offset_h_0;
+        struct u_var_draggable_f32 offset_h_1;
+        struct u_var_draggable_f32 offset_v_0;
+        struct u_var_draggable_f32 offset_v_1;
     } device_config;
 
     struct os_thread poll_thread;
     bool should_poll;
     uint32_t polls_since_last_keepalive;
+
+    bool always_update_distortion;
 };
