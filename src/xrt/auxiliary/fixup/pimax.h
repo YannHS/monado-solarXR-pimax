@@ -23,6 +23,7 @@ struct pimax_display_properties{
     uint32_t pixels_width;
     uint32_t pixels_height;
     float nominal_frame_interval_ns;
+    float gap;
 };
 
 typedef void(*pimax_display_size_func_t)(struct pimax_device* dev, uint32_t* out_width, uint32_t* out_height);

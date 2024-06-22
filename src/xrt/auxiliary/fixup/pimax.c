@@ -95,6 +95,8 @@ void pimax_8kx_get_display_props(struct pimax_device* dev, struct pimax_display_
     out_props->size_in_meters.x = dev->device_config.upscaling ? 0.10206f : 0.099792f;
     out_props->size_in_meters.y = 0.13608f/2.f;
     out_props->nominal_frame_interval_ns = 1000.*1000.*1000./(dev->device_config.upscaling ? 110. : 90.);
+
+    out_props->gap = dev->device_config.upscaling ? 0.0144f : 0.015f;
 }
 
 void pimax_5ks_get_display_props(struct pimax_device* dev, struct pimax_display_properties* out_props){
@@ -209,6 +211,7 @@ bool pimax_compute_distortion_from_mesh(
 
     // 8k(x) specific: adjust the mesh for the slightly different aspect ratio of native mode
     struct xrt_vec2_i32 mesh_display_res = {2160, 1440};
+    float mesh_gap = 0.0144;
 
     float u_ratio = ((float)xdev->hmd->views[view].display.w_pixels / (float)xdev->hmd->views[view].display.h_pixels)
         / ((float)mesh_display_res.x / (float)mesh_display_res.y);
@@ -220,6 +223,21 @@ bool pimax_compute_distortion_from_mesh(
         u *= u_ratio;
         u = 1.f - u;
     }
+
+    /*
+     * Pimax uses the same lenses and optical setup on a lot of HMDs, but the displays are positioned slightly differently
+     * with a different gap in between them. Just using different distortion meshes that already account for this would be
+     * the easiest solution for this, but compiling them all in would be rather impractical. When loading the meshes from
+     * external files, this would be an option though.
+     * Until then, using one mesh created with known parameters and correcting for differences is easier
+     **/
+
+    struct pimax_display_properties props;
+    dev->model_funcs->get_display_properties(dev, &props);
+    float gap_delta = props.gap - mesh_gap;
+    float gap_delta_normalized = (gap_delta / props.size_in_meters.x) / 2;
+    u += gap_delta_normalized * (view ? 1.f : -1.f) * cosf(0.1745);
+
     // first, find the two closest meshes, could also be done in the poll function (probably better)
     int lower_mesh_idx = -1;
     int upper_mesh_idx = -1;
