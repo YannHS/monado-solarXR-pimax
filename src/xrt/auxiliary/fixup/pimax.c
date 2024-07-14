@@ -25,17 +25,21 @@ DEBUG_GET_ONCE_FLOAT_OPTION(pimax_ipd_offs_v0, "PIMAX_IPD_V0", 0.0)
 DEBUG_GET_ONCE_FLOAT_OPTION(pimax_ipd_offs_v1, "PIMAX_IPD_V1", 0.0)
 DEBUG_GET_ONCE_FLOAT_OPTION(pimax_ipd_offs_h0, "PIMAX_IPD_H0", 0.0)
 DEBUG_GET_ONCE_FLOAT_OPTION(pimax_ipd_offs_h1, "PIMAX_IPD_H1", 0.0)
-
+// required, as the resolution needs to be known
+DEBUG_GET_ONCE_NUM_OPTION(pimax_desired_mode, "XRT_COMPOSITOR_DESIRED_MODE", -1)
 // forward declarations, these aren't needed anywhere else, so no need to put them into the header
 void pimax_8kx_get_display_props(struct pimax_device* dev, struct pimax_display_properties* out_props);
 void pimax_5ks_get_display_props(struct pimax_device* dev, struct pimax_display_properties* out_props);
+void pimax_p2d_get_display_props(struct pimax_device* dev, struct pimax_display_properties* out_props);
+void pimax_p2ea_get_display_props(struct pimax_device* dev, struct pimax_display_properties* out_props);
 
 
 struct pimax_model_config model_configs[] = {
-    {L"Pimax P2EA", "Pimax 8K Plus", {pimax_5ks_get_display_props}},
+    {L"Pimax P2EA", "Pimax 8K Plus", {pimax_p2ea_get_display_props}},
     {L"Pimax P2A", "Pimax 5K Super", {pimax_5ks_get_display_props}},
     {L"Pimax P2C", "Pimax 5K Super", {pimax_5ks_get_display_props}},
-    {L"Pimax P2N", "Pimax 8KX", {pimax_8kx_get_display_props}}
+    {L"Pimax P2N", "Pimax 8KX", {pimax_8kx_get_display_props}},
+    {L"Pimax P2D", "Pimax 5k+", {pimax_p2d_get_display_props}},
 };
 
 
@@ -106,8 +110,64 @@ void pimax_5ks_get_display_props(struct pimax_device* dev, struct pimax_display_
     out_props->size_in_meters.x = 0.10206f;
     out_props->size_in_meters.y = 0.13608f/2.f;
     out_props->nominal_frame_interval_ns = 1000.*1000.*1000./110.;
+    out_props->gap = 0.0144f;   // disables any gap adjustment
 }
 
+void pimax_p2d_get_display_props(struct pimax_device* dev, struct pimax_display_properties* out_props){
+    out_props->pixels_width = 2038;
+    out_props->pixels_height = 1440;
+    out_props->size_in_meters.x = 0.0962955f;
+    out_props->size_in_meters.y = 0.13608f/2.f;
+    out_props->nominal_frame_interval_ns = 1000.*1000.*1000./90.;
+
+    switch(debug_get_num_option_pimax_desired_mode()){
+        case 0:
+            out_props->nominal_frame_interval_ns = 1000.*1000.*1000./65.;
+            break;
+        case 1:
+            // this is the one monado should already choose by default
+            break;
+        case 2:
+            out_props->pixels_width = 1600;
+            out_props->nominal_frame_interval_ns = 1000.*1000.*1000./120.;
+            out_props->size_in_meters.x = 0.0756;
+            break;
+        case 3:
+            out_props->pixels_width = 1600;
+            out_props->nominal_frame_interval_ns = 1000.*1000.*1000./144.;
+            out_props->size_in_meters.x = 0.0756;
+            break;
+        default:
+            break;
+    }
+
+    out_props->gap = 0.0144f;   // disables any gap adjustment
+}
+
+void pimax_p2ea_get_display_props(struct pimax_device* dev, struct pimax_display_properties* out_props){
+    out_props->pixels_width = 2560;
+    out_props->pixels_height = 1440;
+    out_props->size_in_meters.x = 0.12096f;
+    out_props->size_in_meters.y = 0.13608f/2.f;
+    out_props->nominal_frame_interval_ns = 1000.*1000.*1000./90.;
+
+    switch(debug_get_num_option_pimax_desired_mode()){
+        case 0:
+            out_props->nominal_frame_interval_ns = 1000.*1000.*1000./72.;
+            break;
+        case 1:
+            // this is the one monado should already choose by default
+            break;
+        case 2:
+            out_props->pixels_width = 2160;
+            out_props->nominal_frame_interval_ns = 1000.*1000.*1000./110.;
+            break;
+        default:
+            break;
+    }
+
+    out_props->gap = 0.0144f;   // disables any gap adjustment
+}
 
 // the results don't exactly line up with what I get from the pimax software
 #define PIMAX_IPD_RAW_MAX 36648
