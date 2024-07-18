@@ -22,6 +22,7 @@ struct pimax_display_properties{
     struct xrt_vec2 size_in_meters;
     uint32_t pixels_width;
     uint32_t pixels_height;
+    uint32_t refresh_rate;
     float nominal_frame_interval_ns;
     float gap;
 };
@@ -38,7 +39,24 @@ struct pimax_model_funcs{
 struct pimax_model_config{
     const wchar_t product_name[PIMAX_MODEL_NAME_LENGTH];    // the name in the USB descriptor
     const char display_name[PIMAX_MODEL_NAME_LENGTH];   // the name for the xdev
+    const char* default_mesh_name;
     struct pimax_model_funcs funcs;
+};
+
+struct pimax_view_mesh{
+    struct xrt_fov fov;
+    size_t len;
+    float* data;
+};
+
+struct pimax_mesh{
+    float ipd;
+    struct pimax_view_mesh views[2];
+};
+
+struct pimax_mesh_set{
+    size_t mesh_count;
+    struct pimax_mesh* meshes;
 };
 
 struct pimax_device{
@@ -46,6 +64,9 @@ struct pimax_device{
     struct fixup_device base;   // must be the first member
 
     struct pimax_model_funcs* model_funcs;
+    const char* default_mesh_name;
+
+    struct pimax_mesh_set* mesh_set;
 
     hid_device* hid_dev;
     struct os_mutex hid_mutex;

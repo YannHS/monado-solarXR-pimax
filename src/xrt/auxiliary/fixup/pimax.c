@@ -5,16 +5,17 @@
 #include "util/u_device.h"
 #include "util/u_distortion_mesh.h"
 #include "util/u_var.h"
+#include "util/u_file.h"
 
 #include "../../drivers/multi_wrapper/multi.h"
 
 #include "math/m_vec2.h"
 #include "math/m_api.h"
 
+#include <cjson/cJSON.h>
+
 #include "pimax.h"
 #include "pimax_projection.h"
-
-#include "pimax_meshes.generated.h"
 
 #define OFFSETS_MIN -0.15
 #define OFFSETS_MAX 0.15
@@ -27,6 +28,13 @@ DEBUG_GET_ONCE_FLOAT_OPTION(pimax_ipd_offs_h0, "PIMAX_IPD_H0", 0.0)
 DEBUG_GET_ONCE_FLOAT_OPTION(pimax_ipd_offs_h1, "PIMAX_IPD_H1", 0.0)
 // required, as the resolution needs to be known
 DEBUG_GET_ONCE_NUM_OPTION(pimax_desired_mode, "XRT_COMPOSITOR_DESIRED_MODE", -1)
+
+
+// for loading meshes from json files instead of having them compiled in
+#define PIMAX_MESHES_DEFAULT_PATH ".config/pimax/meshes"
+#define PIMAX_MESHES_PATH_ENV_VAR "PIMAX_MESHES_PATH"   // folder to look in for meshes
+#define PIMAX_MESH_NAME_ENV_VAR "PIMAX_MESH_NAME"       // file name of the mesh json
+
 // forward declarations, these aren't needed anywhere else, so no need to put them into the header
 void pimax_8kx_get_display_props(struct pimax_device* dev, struct pimax_display_properties* out_props);
 void pimax_5ks_get_display_props(struct pimax_device* dev, struct pimax_display_properties* out_props);
@@ -35,11 +43,11 @@ void pimax_p2ea_get_display_props(struct pimax_device* dev, struct pimax_display
 
 
 struct pimax_model_config model_configs[] = {
-    {L"Pimax P2EA", "Pimax 8K Plus", {pimax_p2ea_get_display_props}},
-    {L"Pimax P2A", "Pimax 5K Super", {pimax_5ks_get_display_props}},
-    {L"Pimax P2C", "Pimax 5K Super", {pimax_5ks_get_display_props}},
-    {L"Pimax P2N", "Pimax 8KX", {pimax_8kx_get_display_props}},
-    {L"Pimax P2D", "Pimax 5k+", {pimax_p2d_get_display_props}},
+    {L"Pimax P2EA", "Pimax 8K Plus", "p2ea.json", {pimax_p2ea_get_display_props}},
+    {L"Pimax P2A", "Pimax 5K Super", "p2a.json", {pimax_5ks_get_display_props}},
+    {L"Pimax P2C", "Pimax 5K Super", "p2c.json", {pimax_5ks_get_display_props}},
+    {L"Pimax P2N", "Pimax 8KX", "p2n.json", {pimax_8kx_get_display_props}},
+    {L"Pimax P2D", "Pimax 5k+", "p2d.json", {pimax_p2d_get_display_props}},
 };
 
 
@@ -99,7 +107,7 @@ void pimax_8kx_get_display_props(struct pimax_device* dev, struct pimax_display_
     out_props->size_in_meters.x = dev->device_config.upscaling ? 0.10206f : 0.099792f;
     out_props->size_in_meters.y = 0.13608f/2.f;
     out_props->nominal_frame_interval_ns = 1000.*1000.*1000./(dev->device_config.upscaling ? 110. : 90.);
-
+    out_props->refresh_rate = dev->device_config.upscaling ? 110 : 90;
     out_props->gap = dev->device_config.upscaling ? 0.0144f : 0.015f;
 }
 
@@ -111,6 +119,7 @@ void pimax_5ks_get_display_props(struct pimax_device* dev, struct pimax_display_
     out_props->size_in_meters.y = 0.13608f/2.f;
     out_props->nominal_frame_interval_ns = 1000.*1000.*1000./110.;
     out_props->gap = 0.0144f;   // disables any gap adjustment
+    out_props->refresh_rate = 110;
 }
 
 void pimax_p2d_get_display_props(struct pimax_device* dev, struct pimax_display_properties* out_props){
@@ -119,10 +128,12 @@ void pimax_p2d_get_display_props(struct pimax_device* dev, struct pimax_display_
     out_props->size_in_meters.x = 0.0962955f;
     out_props->size_in_meters.y = 0.13608f/2.f;
     out_props->nominal_frame_interval_ns = 1000.*1000.*1000./90.;
+    out_props->refresh_rate = 90;
 
     switch(debug_get_num_option_pimax_desired_mode()){
         case 0:
             out_props->nominal_frame_interval_ns = 1000.*1000.*1000./65.;
+            out_props->refresh_rate = 65;
             break;
         case 1:
             // this is the one monado should already choose by default
@@ -131,11 +142,13 @@ void pimax_p2d_get_display_props(struct pimax_device* dev, struct pimax_display_
             out_props->pixels_width = 1600;
             out_props->nominal_frame_interval_ns = 1000.*1000.*1000./120.;
             out_props->size_in_meters.x = 0.0756;
+            out_props->refresh_rate = 120;
             break;
         case 3:
             out_props->pixels_width = 1600;
             out_props->nominal_frame_interval_ns = 1000.*1000.*1000./144.;
             out_props->size_in_meters.x = 0.0756;
+            out_props->refresh_rate = 144;
             break;
         default:
             break;
@@ -150,10 +163,11 @@ void pimax_p2ea_get_display_props(struct pimax_device* dev, struct pimax_display
     out_props->size_in_meters.x = 0.12096f;
     out_props->size_in_meters.y = 0.13608f/2.f;
     out_props->nominal_frame_interval_ns = 1000.*1000.*1000./90.;
-
+    out_props->refresh_rate = 90;
     switch(debug_get_num_option_pimax_desired_mode()){
         case 0:
             out_props->nominal_frame_interval_ns = 1000.*1000.*1000./72.;
+            out_props->refresh_rate = 72;
             break;
         case 1:
             // this is the one monado should already choose by default
@@ -161,6 +175,7 @@ void pimax_p2ea_get_display_props(struct pimax_device* dev, struct pimax_display
         case 2:
             out_props->pixels_width = 2160;
             out_props->nominal_frame_interval_ns = 1000.*1000.*1000./110.;
+            out_props->refresh_rate = 110;
             break;
         default:
             break;
@@ -216,6 +231,10 @@ struct xrt_uv_triplet uv_triplet_lerp(struct xrt_uv_triplet from, struct xrt_uv_
 
 void pimax_update_fovs_from_mesh(struct pimax_device* dev){
     for(int i = 0; i < 2; i++){
+        if(!dev->mesh_set){
+            // there's nothing really useful that can be done here
+            return;
+        }
         struct xrt_fov fov_lower, fov_upper;
         float seperation = dev->device_config.ipd;
         if(i == 0){
@@ -227,11 +246,11 @@ void pimax_update_fovs_from_mesh(struct pimax_device* dev){
         int lower_mesh_idx = -1;
         int upper_mesh_idx = -1;
         // this assumes the entries are sorted with ascending lens separation
-        for(int i = PIMAX_MESH_COUNT - 1; i >= 0; i--){
-            if(pimax_distortion_meshes[i].ipd < seperation){
+        for(int i = dev->mesh_set->mesh_count - 1; i >= 0; i--){
+            if(dev->mesh_set->meshes[i].ipd < seperation){
                 upper_mesh_idx = i;
                 if(i == 0){
-                    if(PIMAX_MESH_COUNT > 1)
+                    if(dev->mesh_set->mesh_count > 1)
                         upper_mesh_idx = 1;
                     lower_mesh_idx = 0;
                 } else {
@@ -241,15 +260,15 @@ void pimax_update_fovs_from_mesh(struct pimax_device* dev){
             }
         }
         if(lower_mesh_idx == -1 || upper_mesh_idx == -1){
-            lower_mesh_idx = upper_mesh_idx = PIMAX_MESH_COUNT - 1;
-            if(PIMAX_MESH_COUNT > 1)
+            lower_mesh_idx = upper_mesh_idx = dev->mesh_set->mesh_count - 1;
+            if(dev->mesh_set->mesh_count > 1)
                 lower_mesh_idx--;
         }    
-        float range = pimax_distortion_meshes[upper_mesh_idx].ipd - pimax_distortion_meshes[lower_mesh_idx].ipd;
-        float amount = (seperation - pimax_distortion_meshes[upper_mesh_idx].ipd) / range;
+        float range = dev->mesh_set->meshes[upper_mesh_idx].ipd - dev->mesh_set->meshes[lower_mesh_idx].ipd;
+        float amount = (seperation - dev->mesh_set->meshes[upper_mesh_idx].ipd) / range;
 
-        fov_lower = *(struct xrt_fov*)pimax_distortion_meshes[lower_mesh_idx].fovs[i];
-        fov_upper = *(struct xrt_fov*)pimax_distortion_meshes[upper_mesh_idx].fovs[i];
+        fov_lower = dev->mesh_set->meshes[lower_mesh_idx].views[i].fov;
+        fov_upper = dev->mesh_set->meshes[upper_mesh_idx].views[i].fov;
         dev->base.base.hmd->distortion.fov[i].angle_up = math_lerp(fov_lower.angle_up, fov_upper.angle_up, amount);
         dev->base.base.hmd->distortion.fov[i].angle_down = math_lerp(fov_lower.angle_down, fov_upper.angle_down, amount);
         dev->base.base.hmd->distortion.fov[i].angle_left = math_lerp(fov_lower.angle_left, fov_upper.angle_left, amount);
@@ -262,6 +281,17 @@ bool pimax_compute_distortion_from_mesh(
 
     struct pimax_device* dev = (struct pimax_device*)xdev;
 
+    // if no mesh got loaded, do no distortion
+    if(!dev->mesh_set){
+        out_result->r.x = u;
+        out_result->r.y = v;
+        out_result->g.x = u;
+        out_result->g.y = v;
+        out_result->b.x = u;
+        out_result->b.y = v;
+        return true;
+    }
+
     float seperation = dev->device_config.ipd;
     if(view == 0){
         seperation += dev->device_config.offset_h_0.val*2;
@@ -269,49 +299,20 @@ bool pimax_compute_distortion_from_mesh(
         seperation += dev->device_config.offset_h_1.val*2;
     }
 
-    // 8k(x) specific: adjust the mesh for the slightly different aspect ratio of native mode
-    struct xrt_vec2_i32 mesh_display_res = {2160, 1440};
-    float mesh_gap = 0.0144;
-
-    float u_ratio = ((float)xdev->hmd->views[view].display.w_pixels / (float)xdev->hmd->views[view].display.h_pixels)
-        / ((float)mesh_display_res.x / (float)mesh_display_res.y);
-
-    if(view){
-    u *= u_ratio;   // I'm decently sure it's getting cut off at the outer edge
-    } else {
-        u = 1.f - u;
-        u *= u_ratio;
-        u = 1.f - u;
-    }
-
-    /*
-     * Pimax uses the same lenses and optical setup on a lot of HMDs, but the displays are positioned slightly differently
-     * with a different gap in between them. Just using different distortion meshes that already account for this would be
-     * the easiest solution for this, but compiling them all in would be rather impractical. When loading the meshes from
-     * external files, this would be an option though.
-     * Until then, using one mesh created with known parameters and correcting for differences is easier
-     **/
-
-    struct pimax_display_properties props;
-    dev->model_funcs->get_display_properties(dev, &props);
-    float gap_delta = props.gap - mesh_gap;
-    float gap_delta_normalized = (gap_delta / props.size_in_meters.x) / 2;
-    u += gap_delta_normalized * (view ? 1.f : -1.f) * cosf(0.1745);
-
     // first, find the two closest meshes, could also be done in the poll function (probably better)
     int lower_mesh_idx = -1;
     int upper_mesh_idx = -1;
     // this assumes the entries are sorted with ascending lens separation
-    for(int i = PIMAX_MESH_COUNT - 1; i >= 0; i--){
-        //U_LOG_D("Mesh %d: %f (%f)", i, pimax_distortion_meshes[i].ipd, seperation);
-        if(pimax_distortion_meshes[i].ipd < seperation){
-            upper_mesh_idx = i;
-            if(i == 0){
-                if(PIMAX_MESH_COUNT > 1)
-                    upper_mesh_idx = 1;
-                lower_mesh_idx = 0;
-            } else {
+    for(int i = dev->mesh_set->mesh_count - 1; i >= 0; i--){
+        //U_LOG_D("Mesh %d: %f (%f)", i, dev->mesh_set->meshes[i].ipd, seperation);
+        if(dev->mesh_set->meshes[i].ipd < seperation){
+            lower_mesh_idx = i;
+            if(i == (int)dev->mesh_set->mesh_count-1){
+                if(dev->mesh_set->mesh_count > 1)
+                    upper_mesh_idx = dev->mesh_set->mesh_count-1;
                 lower_mesh_idx = i-1;
+            } else {
+                upper_mesh_idx = i+1;
             }
             break;
         }
@@ -319,50 +320,50 @@ bool pimax_compute_distortion_from_mesh(
     if(lower_mesh_idx == -1 || upper_mesh_idx == -1){
         //U_LOG_E("Could not find a distortion mesh for lens separation %fmm\n", dev->device_config.separation);
         //return false;
-        lower_mesh_idx = upper_mesh_idx = PIMAX_MESH_COUNT - 1;
-        if(PIMAX_MESH_COUNT > 1)
-            lower_mesh_idx--;
+        lower_mesh_idx = upper_mesh_idx = 0;
+        if(dev->mesh_set->mesh_count > 1)
+            upper_mesh_idx = 1;
     }
-
-    float range = pimax_distortion_meshes[upper_mesh_idx].ipd - pimax_distortion_meshes[lower_mesh_idx].ipd;
+    /*U_LOG_D("Using meshes with IPDs %f and %f for IPD %f", dev->mesh_set->meshes[lower_mesh_idx].ipd, 
+        dev->mesh_set->meshes[upper_mesh_idx].ipd, 
+        seperation);*/
+    float range = dev->mesh_set->meshes[upper_mesh_idx].ipd - dev->mesh_set->meshes[lower_mesh_idx].ipd;
     struct xrt_vec2 pos = {u, v};
 
     int mesh_steps_u = 65;
     int mesh_steps_v = 65;
     int stride_in_floats = 8;
 
-    int base_index = view * mesh_steps_u * mesh_steps_v;
-
     int u_lower = floor(u*(mesh_steps_u-1));
     int u_upper = ceil(u*(mesh_steps_u-1));
     int v_lower = floor(v*(mesh_steps_v-1));
     int v_upper = ceil(v*(mesh_steps_v-1));
 
-    int idx_ulvl = base_index + v_lower*mesh_steps_u + u_lower;
-    int idx_uuvl = base_index + v_lower*mesh_steps_u + u_upper;
-    int idx_ulvu = base_index + v_upper*mesh_steps_u + u_lower;
-    int idx_uuvu = base_index + v_upper*mesh_steps_u + u_upper;
+    int idx_ulvl = v_lower*mesh_steps_u + u_lower;
+    int idx_uuvl = v_lower*mesh_steps_u + u_upper;
+    int idx_ulvu = v_upper*mesh_steps_u + u_lower;
+    int idx_uuvu = v_upper*mesh_steps_u + u_upper;
     struct xrt_uv_triplet triplets[2];
     for(int i = 0; i < 2; i++){
 
         int mesh_idx = i ? upper_mesh_idx : lower_mesh_idx;
 
-        struct xrt_vec2 vec_ulvl = *(struct xrt_vec2*)(&pimax_distortion_meshes[mesh_idx].mesh[idx_ulvl * stride_in_floats]);
-        struct xrt_vec2 vec_uuvl = *(struct xrt_vec2*)(&pimax_distortion_meshes[mesh_idx].mesh[idx_uuvl * stride_in_floats]);
-        struct xrt_vec2 vec_ulvu = *(struct xrt_vec2*)(&pimax_distortion_meshes[mesh_idx].mesh[idx_ulvu * stride_in_floats]);
-        struct xrt_vec2 vec_uuvu = *(struct xrt_vec2*)(&pimax_distortion_meshes[mesh_idx].mesh[idx_uuvu * stride_in_floats]);
+        struct xrt_vec2 vec_ulvl = *(struct xrt_vec2*)(&dev->mesh_set->meshes[mesh_idx].views[view].data[idx_ulvl * stride_in_floats]);
+        struct xrt_vec2 vec_uuvl = *(struct xrt_vec2*)(&dev->mesh_set->meshes[mesh_idx].views[view].data[idx_uuvl * stride_in_floats]);
+        //struct xrt_vec2 vec_ulvu = *(struct xrt_vec2*)(&dev->mesh_set->meshes[mesh_idx].views[view].data[idx_ulvu * stride_in_floats]);
+        struct xrt_vec2 vec_uuvu = *(struct xrt_vec2*)(&dev->mesh_set->meshes[mesh_idx].views[view].data[idx_uuvu * stride_in_floats]);
 
         struct xrt_uv_triplet triplet_uvl;
         struct xrt_uv_triplet triplet_uvu;
         if(u_lower == u_upper){
-            triplet_uvl = *(struct xrt_uv_triplet*)(&pimax_distortion_meshes[mesh_idx].mesh[idx_uuvl * stride_in_floats + 2]);
-            triplet_uvu = *(struct xrt_uv_triplet*)(&pimax_distortion_meshes[mesh_idx].mesh[idx_uuvu * stride_in_floats + 2]);
+            triplet_uvl = *(struct xrt_uv_triplet*)(&dev->mesh_set->meshes[mesh_idx].views[view].data[idx_uuvl * stride_in_floats + 2]);
+            triplet_uvu = *(struct xrt_uv_triplet*)(&dev->mesh_set->meshes[mesh_idx].views[view].data[idx_uuvu * stride_in_floats + 2]);
         } else {
 
-            struct xrt_uv_triplet triplet_ulvl = *(struct xrt_uv_triplet*)(&pimax_distortion_meshes[mesh_idx].mesh[idx_ulvl * stride_in_floats + 2]);
-            struct xrt_uv_triplet triplet_uuvl = *(struct xrt_uv_triplet*)(&pimax_distortion_meshes[mesh_idx].mesh[idx_uuvl * stride_in_floats + 2]);
-            struct xrt_uv_triplet triplet_ulvu = *(struct xrt_uv_triplet*)(&pimax_distortion_meshes[mesh_idx].mesh[idx_ulvu * stride_in_floats + 2]);
-            struct xrt_uv_triplet triplet_uuvu = *(struct xrt_uv_triplet*)(&pimax_distortion_meshes[mesh_idx].mesh[idx_uuvu * stride_in_floats + 2]);
+            struct xrt_uv_triplet triplet_ulvl = *(struct xrt_uv_triplet*)(&dev->mesh_set->meshes[mesh_idx].views[view].data[idx_ulvl * stride_in_floats + 2]);
+            struct xrt_uv_triplet triplet_uuvl = *(struct xrt_uv_triplet*)(&dev->mesh_set->meshes[mesh_idx].views[view].data[idx_uuvl * stride_in_floats + 2]);
+            struct xrt_uv_triplet triplet_ulvu = *(struct xrt_uv_triplet*)(&dev->mesh_set->meshes[mesh_idx].views[view].data[idx_ulvu * stride_in_floats + 2]);
+            struct xrt_uv_triplet triplet_uuvu = *(struct xrt_uv_triplet*)(&dev->mesh_set->meshes[mesh_idx].views[view].data[idx_uuvu * stride_in_floats + 2]);
 
             // interpolate u first
             float amount = (pos.x - vec_ulvl.x) / (vec_uuvl.x - vec_ulvl.x);
@@ -381,7 +382,7 @@ bool pimax_compute_distortion_from_mesh(
     if(upper_mesh_idx == lower_mesh_idx){
         *out_result = triplets[0];    
     } else {
-        float amount = (seperation - pimax_distortion_meshes[upper_mesh_idx].ipd) / range;
+        float amount = (seperation - dev->mesh_set->meshes[upper_mesh_idx].ipd) / range;
         *out_result = uv_triplet_lerp(triplets[0], triplets[1], amount);
     }
 
@@ -465,6 +466,16 @@ void* pimax_poll_thread_func(void* ptr){
     return NULL;
 }
 
+void pimax_delete_mesh_set(struct pimax_device* dev){
+    for(size_t mesh = 0; mesh < dev->mesh_set->mesh_count; mesh++){
+        free(dev->mesh_set->meshes[mesh].views[0].data);
+        free(dev->mesh_set->meshes[mesh].views[1].data);
+    }
+    free(dev->mesh_set->meshes);
+    free(dev->mesh_set);
+    dev->mesh_set = NULL;
+}
+
 void pimax_destroy(struct xrt_device* xrtdev){
 	struct pimax_device* dev = (struct pimax_device*)xrtdev;
 	U_LOG_D("Pimax destroy\n");
@@ -474,7 +485,153 @@ void pimax_destroy(struct xrt_device* xrtdev){
     hid_close(dev->hid_dev);
     os_mutex_unlock(&dev->hid_mutex);
     os_mutex_destroy(&dev->hid_mutex);
+
+    // delete mesh
+    if(dev->mesh_set){
+        pimax_delete_mesh_set(dev);
+    }
+
     free(dev);
+}
+
+size_t pimax_get_mesh_path(struct pimax_device* dev, size_t max_len, char* out_path){
+    size_t outlen = 0;
+    // directory
+    if(getenv(PIMAX_MESHES_PATH_ENV_VAR) != NULL){
+        strncpy(out_path, getenv(PIMAX_MESHES_PATH_ENV_VAR), max_len);
+        outlen += strlen(getenv(PIMAX_MESHES_PATH_ENV_VAR));
+        if(max_len > outlen){
+            out_path[outlen] = '/';
+        }
+        outlen++;
+    } else {
+        strncpy(out_path, getenv("HOME"), max_len);
+        outlen += strlen(getenv("HOME"));
+        if(max_len > outlen){
+            out_path[outlen] = '/';
+        }
+        outlen++;
+        if(max_len > outlen){
+            strncpy(out_path + outlen, PIMAX_MESHES_DEFAULT_PATH, (strlen(PIMAX_MESHES_DEFAULT_PATH) > (max_len - outlen)) ? 0 : (max_len - outlen));
+        }
+        outlen += strlen(PIMAX_MESHES_DEFAULT_PATH);
+        if(max_len > outlen){
+            out_path[outlen] = '/';
+        }
+        outlen++;
+    }
+    
+    // file
+    if(getenv(PIMAX_MESH_NAME_ENV_VAR)){
+        if(max_len > outlen){
+            size_t remaining = (strlen(getenv(PIMAX_MESH_NAME_ENV_VAR)) > (max_len - outlen)) ? 0 : (max_len - outlen);
+            strncpy(out_path + outlen, getenv(PIMAX_MESH_NAME_ENV_VAR), remaining);
+        }
+        outlen += strlen(getenv(PIMAX_MESH_NAME_ENV_VAR));
+    } else {
+        if(max_len > outlen){
+            size_t remaining = (strlen(dev->default_mesh_name) > (max_len - outlen)) ? 0 : (max_len - outlen);
+            strncpy(out_path + outlen, dev->default_mesh_name, remaining);
+        }
+        outlen += strlen(dev->default_mesh_name);
+    }
+
+    if(max_len > outlen){
+        out_path[outlen] = 0;
+    }
+    outlen++;
+    if(max_len > 0){
+        out_path[max_len-1] = 0;
+    }
+    return outlen;
+}
+
+void pimax_load_meshes_from_file(struct pimax_device* dev, const char* path){
+    dev->mesh_set = NULL;
+    char* data = u_file_read_content_from_path(path);
+    if(!data){
+        U_LOG_E("Error reading mesh file %s! Check if the path is correct and if you have permissions to read the file!", path);
+        return;
+    }
+    cJSON* json = cJSON_Parse(data);
+    if(!json){
+        U_LOG_E("Failed to parse json from %s!", path);
+        return;
+    }
+
+    struct pimax_display_properties display_props;
+    dev->model_funcs->get_display_properties(dev, &display_props);
+    if(!cJSON_IsArray(json)){
+        U_LOG_E("Mesh json has wrong structure!");
+        return;
+    }
+    cJSON* currentMeshSet;
+    bool mesh_matches = false;
+    cJSON_ArrayForEach(currentMeshSet,json){
+        // check resolutions first
+        cJSON* currentResolution;
+        bool res_match = false;
+        bool refrate_match = false;
+        cJSON_ArrayForEach(currentResolution, cJSON_GetObjectItem(currentMeshSet, "resolutions")){
+            uint32_t width = cJSON_GetNumberValue(cJSON_GetObjectItem(currentResolution, "width"));
+            uint32_t height = cJSON_GetNumberValue(cJSON_GetObjectItem(currentResolution, "height"));
+            if(width == display_props.pixels_width && height == display_props.pixels_height){
+                res_match = true;
+                break;
+            }
+        }
+        // also check the refresh rates at some point
+        cJSON_ArrayForEach(currentResolution, cJSON_GetObjectItem(currentMeshSet, "refresh_rates")){
+            uint32_t refrate = cJSON_GetNumberValue(currentResolution);
+            if(refrate == display_props.refresh_rate){
+                refrate_match = true;
+                break;
+            }
+        }
+
+        if(res_match && refrate_match){
+            mesh_matches = true;
+            break;
+        }
+    }
+    if(!mesh_matches){
+        U_LOG_E("Could not find a matching mesh for the current display mode!");
+        return;
+    }
+    U_LOG_D("Found mesh!");
+
+    // now create the mesh structures in the pimax_device
+    cJSON* meshes = cJSON_GetObjectItem(currentMeshSet, "meshes");
+    int mesh_count = cJSON_GetArraySize(meshes);
+    dev->mesh_set = U_TYPED_CALLOC(struct pimax_mesh_set);
+    dev->mesh_set->mesh_count = mesh_count;
+    dev->mesh_set->meshes = U_TYPED_ARRAY_CALLOC(struct pimax_mesh, mesh_count);
+
+    cJSON* currentMesh;
+    size_t meshIdx = 0;
+    cJSON_ArrayForEach(currentMesh, meshes){
+        struct pimax_mesh* currentPMesh = dev->mesh_set->meshes + meshIdx;
+        currentPMesh->ipd = atof(currentMesh->string);
+        for(size_t view = 0; view < 2; view++){
+            cJSON* view_json = cJSON_GetArrayItem(currentMesh, view);
+            currentPMesh->views[view].fov = (struct xrt_fov){
+                cJSON_GetNumberValue(cJSON_GetArrayItem(cJSON_GetObjectItem(view_json, "fov"), 0)),
+                cJSON_GetNumberValue(cJSON_GetArrayItem(cJSON_GetObjectItem(view_json, "fov"), 1)),
+                cJSON_GetNumberValue(cJSON_GetArrayItem(cJSON_GetObjectItem(view_json, "fov"), 2)),
+                cJSON_GetNumberValue(cJSON_GetArrayItem(cJSON_GetObjectItem(view_json, "fov"), 3)),
+            };
+            cJSON* points = cJSON_GetObjectItem(view_json, "points");
+            currentPMesh->views[view].len = cJSON_GetArraySize(points);
+            currentPMesh->views[view].data = U_TYPED_ARRAY_CALLOC(float, currentPMesh->views[view].len);
+            size_t idx = 0;
+            cJSON* pval;
+            cJSON_ArrayForEach(pval, points){
+                currentPMesh->views[view].data[idx] = cJSON_GetNumberValue(pval);
+                idx++;
+            }
+        }
+        meshIdx++;
+    }
 }
 
 long init_pimax8kx(struct fixup_context* ctx, struct fixup_func_list* funcs, struct hid_device_info* devinfo){
@@ -517,7 +674,8 @@ long init_pimax8kx(struct fixup_context* ctx, struct fixup_func_list* funcs, str
             strncpy(dev->base.base.str, model_configs[i].display_name, 
                 (PIMAX_MODEL_NAME_LENGTH<XRT_DEVICE_NAME_LEN?PIMAX_MODEL_NAME_LENGTH:XRT_DEVICE_NAME_LEN)-1);
                 found_match = true;
-                break;
+            dev->default_mesh_name = model_configs[i].default_mesh_name;
+            break;
         }
     }
     if(!found_match){
@@ -558,10 +716,23 @@ long init_pimax8kx(struct fixup_context* ctx, struct fixup_func_list* funcs, str
      */
     xrtdev->inputs = U_TYPED_CALLOC(struct xrt_input);
     xrtdev->inputs[0].name = XRT_INPUT_SIMPLE_SELECT_CLICK;
+    xrtdev->inputs[0].active = true;
     xrtdev->input_count = 1;
 
 	ctx->devices[ctx->num_devices] = (struct fixup_device*)dev;
 	ctx->num_devices++;
+
+
+    /*
+     * Distortion mesh stuff
+     */
+
+    size_t mesh_path_len = pimax_get_mesh_path(dev, 0, NULL);
+    char* meshpath = U_TYPED_ARRAY_CALLOC(char, mesh_path_len);
+    pimax_get_mesh_path(dev, mesh_path_len, meshpath);
+    U_LOG_I("Using distortion meshes from: %s", meshpath);
+    pimax_load_meshes_from_file(dev, meshpath);
+    free(meshpath);
 
     pimax_update_fovs_from_mesh(dev);
 
