@@ -39,6 +39,7 @@ DEBUG_GET_ONCE_NUM_OPTION(pimax_desired_mode, "XRT_COMPOSITOR_DESIRED_MODE", -1)
 void pimax_8kx_get_display_props(struct pimax_device* dev, struct pimax_display_properties* out_props);
 void pimax_5ks_get_display_props(struct pimax_device* dev, struct pimax_display_properties* out_props);
 void pimax_p2d_get_display_props(struct pimax_device* dev, struct pimax_display_properties* out_props);
+void pimax_p2b_get_display_props(struct pimax_device* dev, struct pimax_display_properties* out_props);
 void pimax_p2ea_get_display_props(struct pimax_device* dev, struct pimax_display_properties* out_props);
 
 
@@ -47,7 +48,8 @@ struct pimax_model_config model_configs[] = {
     {L"Pimax P2A", "Pimax 5K Super", "p2a.json", {pimax_5ks_get_display_props}},
     {L"Pimax P2C", "Pimax 5K Super", "p2c.json", {pimax_5ks_get_display_props}},
     {L"Pimax P2N", "Pimax 8KX", "p2n.json", {pimax_8kx_get_display_props}},
-    {L"Pimax P2D", "Pimax 5k+", "p2d.json", {pimax_p2d_get_display_props}},
+    {L"Pimax P2D", "Pimax 5K+", "p2d.json", {pimax_p2d_get_display_props}},
+    {L"Pimax P2B", "Pimax 5K XR", "p2b.json", {pimax_p2b_get_display_props}},
 };
 
 
@@ -176,6 +178,32 @@ void pimax_p2ea_get_display_props(struct pimax_device* dev, struct pimax_display
             out_props->pixels_width = 2160;
             out_props->nominal_frame_interval_ns = 1000.*1000.*1000./110.;
             out_props->refresh_rate = 110;
+            break;
+        default:
+            break;
+    }
+
+    out_props->gap = 0.0144f;   // disables any gap adjustment
+}
+
+void pimax_p2b_get_display_props(struct pimax_device* dev, struct pimax_display_properties* out_props){
+    out_props->pixels_width = 2560;
+    out_props->pixels_height = 1440;
+    out_props->size_in_meters.x = 0.12544;
+    out_props->size_in_meters.y = 0.14112/2.f;
+    out_props->nominal_frame_interval_ns = 1000.*1000.*1000./82.;
+    out_props->refresh_rate = 82;
+    switch(debug_get_num_option_pimax_desired_mode()){
+        case 0:
+            out_props->nominal_frame_interval_ns = 1000.*1000.*1000./64.;
+            out_props->refresh_rate = 64;
+            break;
+        case 1:
+            out_props->nominal_frame_interval_ns = 1000.*1000.*1000./72.;
+            out_props->refresh_rate = 72;
+            break;
+        case 2:
+            // this is the one monado should already choose by default
             break;
         default:
             break;
