@@ -15,7 +15,6 @@
 #include <cjson/cJSON.h>
 
 #include "pimax.h"
-#include "pimax_projection.h"
 
 #define OFFSETS_MIN -0.15
 #define OFFSETS_MAX 0.15
@@ -106,29 +105,21 @@ void pimax_8kx_get_display_props(struct pimax_device* dev, struct pimax_display_
     out_props->pixels_width = dev->device_config.upscaling ? 2160 : 3168;
     out_props->pixels_height = dev->device_config.upscaling ? 1440 : 2160;
 
-    out_props->size_in_meters.x = dev->device_config.upscaling ? 0.10206f : 0.099792f;
-    out_props->size_in_meters.y = 0.13608f/2.f;
     out_props->nominal_frame_interval_ns = 1000.*1000.*1000./(dev->device_config.upscaling ? 110. : 90.);
     out_props->refresh_rate = dev->device_config.upscaling ? 110 : 90;
-    out_props->gap = dev->device_config.upscaling ? 0.0144f : 0.015f;
 }
 
 void pimax_5ks_get_display_props(struct pimax_device* dev, struct pimax_display_properties* out_props){
     out_props->pixels_width = 2160;
     out_props->pixels_height = 1440;
 
-    out_props->size_in_meters.x = 0.10206f;
-    out_props->size_in_meters.y = 0.13608f/2.f;
     out_props->nominal_frame_interval_ns = 1000.*1000.*1000./110.;
-    out_props->gap = 0.0144f;   // disables any gap adjustment
     out_props->refresh_rate = 110;
 }
 
 void pimax_p2d_get_display_props(struct pimax_device* dev, struct pimax_display_properties* out_props){
     out_props->pixels_width = 2038;
     out_props->pixels_height = 1440;
-    out_props->size_in_meters.x = 0.0962955f;
-    out_props->size_in_meters.y = 0.13608f/2.f;
     out_props->nominal_frame_interval_ns = 1000.*1000.*1000./90.;
     out_props->refresh_rate = 90;
 
@@ -143,27 +134,22 @@ void pimax_p2d_get_display_props(struct pimax_device* dev, struct pimax_display_
         case 2:
             out_props->pixels_width = 1600;
             out_props->nominal_frame_interval_ns = 1000.*1000.*1000./120.;
-            out_props->size_in_meters.x = 0.0756;
             out_props->refresh_rate = 120;
             break;
         case 3:
             out_props->pixels_width = 1600;
             out_props->nominal_frame_interval_ns = 1000.*1000.*1000./144.;
-            out_props->size_in_meters.x = 0.0756;
             out_props->refresh_rate = 144;
             break;
         default:
             break;
     }
 
-    out_props->gap = 0.0144f;   // disables any gap adjustment
 }
 
 void pimax_p2ea_get_display_props(struct pimax_device* dev, struct pimax_display_properties* out_props){
     out_props->pixels_width = 2560;
     out_props->pixels_height = 1440;
-    out_props->size_in_meters.x = 0.12096f;
-    out_props->size_in_meters.y = 0.13608f/2.f;
     out_props->nominal_frame_interval_ns = 1000.*1000.*1000./90.;
     out_props->refresh_rate = 90;
     switch(debug_get_num_option_pimax_desired_mode()){
@@ -182,15 +168,11 @@ void pimax_p2ea_get_display_props(struct pimax_device* dev, struct pimax_display
         default:
             break;
     }
-
-    out_props->gap = 0.0144f;   // disables any gap adjustment
 }
 
 void pimax_p2b_get_display_props(struct pimax_device* dev, struct pimax_display_properties* out_props){
     out_props->pixels_width = 2560;
     out_props->pixels_height = 1440;
-    out_props->size_in_meters.x = 0.12544;
-    out_props->size_in_meters.y = 0.14112/2.f;
     out_props->nominal_frame_interval_ns = 1000.*1000.*1000./82.;
     out_props->refresh_rate = 82;
     switch(debug_get_num_option_pimax_desired_mode()){
@@ -208,17 +190,9 @@ void pimax_p2b_get_display_props(struct pimax_device* dev, struct pimax_display_
         default:
             break;
     }
-
-    out_props->gap = 0.0144f;   // disables any gap adjustment
 }
 
 // the results don't exactly line up with what I get from the pimax software
-#define PIMAX_IPD_RAW_MAX 36648
-#define PIMAX_IPD_RAW_MIN 34557
-#define PIMAX_IPD_MIN 0.06043485552072525
-#define PIMAX_IPD_MAX 0.0670139342546463
-#define PIMAX_SEPARATION_MIN 0.08623039722442627
-#define PIMAX_SEPARATION_MAX 0.09301088005304337
 
 float pimax_8kx_lens_separation_from_raw(int16_t raw){
     //U_LOG_D("Raw: %d", raw);
@@ -226,7 +200,6 @@ float pimax_8kx_lens_separation_from_raw(int16_t raw){
 }
 
 float pimax_8kx_ipd_from_raw(uint16_t raw){
-    //return PIMAX_IPD_MAX - (raw - PIMAX_IPD_RAW_MIN) * (PIMAX_IPD_MAX-PIMAX_IPD_MIN)/(PIMAX_IPD_RAW_MAX-PIMAX_IPD_RAW_MIN);
     return pimax_8kx_lens_separation_from_raw(raw) - 0.026f;
 }
 
@@ -723,7 +696,6 @@ long init_pimax8kx(struct fixup_context* ctx, struct fixup_func_list* funcs, str
 	xrtdev->destroy = pimax_destroy;
 	xrtdev->device_type = XRT_DEVICE_TYPE_HMD;
 	xrtdev->name = XRT_DEVICE_GENERIC_HMD;
-	//strncpy(xrtdev->str, "Pimax 8KX", XRT_DEVICE_NAME_LEN);
 	xrtdev->update_inputs = pimax_update_inputs;
 	xrtdev->hmd = U_TYPED_CALLOC(struct xrt_hmd_parts);
 	xrtdev->hmd->view_count = 2;
@@ -736,7 +708,7 @@ long init_pimax8kx(struct fixup_context* ctx, struct fixup_func_list* funcs, str
 
 	xrtdev->get_view_poses = pimax_get_view_poses;
 	xrtdev->hmd->blend_modes[0] = XRT_BLEND_MODE_OPAQUE;
-	xrtdev->hmd->blend_mode_count = 1;	// need to check this again
+	xrtdev->hmd->blend_mode_count = 1;
     xrtdev->stage_supported = true;
 
     /*
@@ -849,128 +821,12 @@ pimax_get_view_poses(struct xrt_device *xdev,
     }
 
     //U_LOG_D("get view poses\n");
-    // canted displays, based on PiTool 
+    // canted displays, based on PiTools output 
     // ONLY WORKS IF LIGHTHOUSES ARE ON!!!
     
     out_poses[0].orientation = (struct xrt_quat){0,0.0871557, 0, 0.996195};
     out_poses[1].orientation = (struct xrt_quat){0,-0.0871557, 0, 0.996195};
 }
-
-
-// probably best to ignore this, it doesn't work very well at all
-bool
-u_compute_distortion_ndvive(struct u_vive_values *values, float u, float v, float uoffs, float p1, float p2, struct xrt_uv_triplet *result)
-{
-	// Reading the whole struct like this gives the compiler more opportunity to optimize.
-	const struct u_vive_values val = *values;
-
-	const float common_factor_value = 0.5f / (1.0f + val.grow_for_undistort);
-	const struct xrt_vec2 factor = {
-	    common_factor_value,
-	    common_factor_value * val.aspect_x_over_y,
-	};
-
-	// Results r/g/b.
-	struct xrt_vec2 tc[3] = {{0, 0}, {0, 0}, {0, 0}};
-
-	// Dear compiler, please vectorize.
-	for (int i = 0; i < 3; i++) {
-		struct xrt_vec2 texCoord = {
-		    2.f * u - 1.f,
-		    2.f * v - 1.f,
-		};
-
-		texCoord.y /= val.aspect_x_over_y;
-		texCoord.x -= val.center[i].x;
-		texCoord.y -= val.center[i].y;
-
-
-        struct xrt_vec2 distTexCoord = {
-		    2.f * (u+uoffs) - 1.f,
-		    2.f * v - 1.f,
-		};
-
-		distTexCoord.y /= val.aspect_x_over_y;
-		distTexCoord.x -= val.center[i].x;
-		distTexCoord.y -= val.center[i].y;
-
-		float r2 = m_vec2_dot(distTexCoord, distTexCoord);
-		float k1 = val.coefficients[i][0];
-		float k2 = val.coefficients[i][1];
-		float k3 = val.coefficients[i][2];
-		float k4 = val.coefficients[i][3];
-
-		/*
-		 *                     1.0
-		 * d = -------------------------------------- + k4
-		 *      1.0 + r^2 * k1 + r^4 * k2 + r^6 * k3
-		 *
-		 * The variable k4 is the scaled part of DISTORT_DPOLY3_SCALED.
-		 *
-		 * Optimization to reduce the number of multiplications.
-		 *    1.0 + r^2 * k1 + r^4 * k2 + r^6 * k3
-		 *    1.0 + r^2 * ((k1 + r^2 * k2) + r^2 * k3)
-		 */
-
-		float top = 1.f;
-		float bottom = 1.f + r2 * (k1 + r2 * (k2 + r2 * k3));
-		float d = (bottom) + k4;
-
-        // tangential distortion
-        float x = texCoord.x;
-        float y = texCoord.y;
-        float xn = x;// + (2*p1*x*y + p2*(r2 + 2 * x*x));
-        float yn = y;// + (p1*(r2 + 2 * y*y) + 2*p2*x*y);
-		struct xrt_vec2 offset = {0.5f, 0.5f};
-
-		tc[i].x = offset.x + (xn * d + val.center[i].x) * factor.x * 1.2;
-		tc[i].y = offset.y + (yn * d + val.center[i].y) * factor.y * 1.3;
-	}
-
-	result->r = tc[0];
-	result->g = tc[1];
-	result->b = tc[2];
-
-	return true;
-}
-
-bool pimax_compute_distortion(
-	    struct xrt_device *xdev, uint32_t view, float u, float v, struct xrt_uv_triplet *out_result){
-
-    //U_LOG_D("Distortion %f:%f is now %f:%f\n", u, v, out_result->r.x, out_result->r.y);
-    // correct for the canted displays
-    float xdir = view ? -1.f : 1.f;
-    u -= 0.5f;
-    v -= 0.5f;
-    v *= 1 + ((view ? -u : u) * (0.173228346f));
-    v += 0.5f;
-    u *= (608.f/508.f);
-    u += 0.5f;
-    u -= xdir* 0.07f;  // adjust for the lenses moving over the displays. this value works decently for 0.067m IPD
-    //u*= 0.5;
-    //v*= 0.5;
-
-    // no distortion for now
-    out_result->r.x = u;
-    out_result->r.y = v;
-    out_result->g.x = u;
-    out_result->g.y = v;
-    out_result->b.x = u;
-    out_result->b.y = v;
-    
-    struct u_vive_values pimaxLeft = {1.65, 0.6, 1.5,
-        //{(struct xrt_vec2){xdir*0.2,0}, (struct xrt_vec2){xdir*0.2,0}, (struct xrt_vec2){xdir*0.2,0}},
-        {(struct xrt_vec2){xdir*0.,0}, (struct xrt_vec2){xdir*0.,0}, (struct xrt_vec2){xdir*0.,0}},
-        //{{0.74398162, -0.20681542, 0.89263725, 0.0}, {0.74398162, -0.20681542, 0.89263725, 0.0}, {0.74398162, -0.20681542, 0.89263725, 0.0}}};
-        //{{0.20168104, -0.00836374, 0.08422303, 0.0}, {0.20168104, -0.00836374, 0.08422303, 0.0}, {0.20168104, -0.00836374, 0.08422303, 0.0}}};
-        {{0.60168104, -0.00836374, 0.08422303, 0.0}, {0.60168104, -0.00836374, 0.08422303, 0.0}, {0.60168104, -0.00836374, 0.08422303, 0.0}}};
-        //{{0.00784313772, 0.00392156886, 0, 0.0}, {0.00784313772, 0.00392156886, 0, 0.0}, {0.00784313772, 0.00392156886, 0, 0.0}}};
-    u_compute_distortion_ndvive(&pimaxLeft, u, v, 0.0, -0.02637853, 0.03973991, out_result);
-    //U_LOG_D("Distortion %f:%f is now %f:%f\n", u, v, out_result->r.x, out_result->r.y);
-    return true;
-}
-
-
 
 // width and height here refer to how the displays are located in the hmd
 void pimax_fill_display(struct pimax_device* dev,struct pimax_display_properties* display_props){
@@ -978,7 +834,7 @@ void pimax_fill_display(struct pimax_device* dev,struct pimax_display_properties
     hmd = dev->base.base.hmd;
     hmd->screens[0].w_pixels = 2*display_props->pixels_height;
     hmd->screens[0].h_pixels = display_props->pixels_width;
-    hmd->screens[0].nominal_frame_interval_ns = display_props->nominal_frame_interval_ns;   // TODO: use the actual refresh rate
+    hmd->screens[0].nominal_frame_interval_ns = display_props->nominal_frame_interval_ns;
     for(int i = 0; i < 2; i++){
         hmd->views[i].viewport.w_pixels = display_props->pixels_height;
         hmd->views[i].viewport.h_pixels = display_props->pixels_width;
@@ -1028,8 +884,6 @@ void patch_pimax8kx(struct fixup_device* fdev, struct fixup_context* ctx, struct
     u_var_add_draggable_f32(dev, &dev->device_config.offset_h_0, "Left H");
     u_var_add_draggable_f32(dev, &dev->device_config.offset_h_1, "Right H");
     
-    //u_var_add_f32(dev, &dev->device_config.left_offsets.x, "Left H");
-    //u_var_add_f32(dev, &dev->device_config.right_offsets.x, "Right H");
     u_var_add_gui_header(dev, NULL, "Vertical offset: ");
     u_var_add_draggable_f32(dev, &dev->device_config.offset_v_0, "Left V");
     u_var_add_draggable_f32(dev, &dev->device_config.offset_v_1, "Right V");
