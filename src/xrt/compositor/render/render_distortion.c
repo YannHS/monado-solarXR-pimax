@@ -280,6 +280,111 @@ err_buffers:
 }
 
 static bool
+render_distortion_compute_update(struct xrt_device *xdev)
+{
+	struct render_resources* r = xdev->hmd->distortion.resources;
+	bool pre_rotate = r->distortion.pre_rotated;
+	struct vk_bundle* vk = xdev->hmd->distortion.dist_vk_bundle;
+
+	struct render_buffer bufs[RENDER_DISTORTION_IMAGES_SIZE];
+	VkDeviceMemory device_memories[RENDER_DISTORTION_IMAGES_SIZE];
+	VkImage images[RENDER_DISTORTION_IMAGES_SIZE];
+	VkImageView image_views[RENDER_DISTORTION_IMAGES_SIZE];
+	VkCommandBuffer upload_buffer = VK_NULL_HANDLE;
+	VkResult ret;
+
+
+	/*
+	 * Basics
+	 */
+
+	for (uint32_t i = 0; i < r->view_count; ++i) {
+		render_calc_uv_to_tangent_lengths_rect(&xdev->hmd->distortion.fov[i], &r->distortion.uv_to_tanangle[i]);
+	}
+
+	/*
+	 * Buffers with data to upload.
+	 * view_count=2,RRGGBB
+	 * view_count=3,RRRGGGBBB
+	 */
+	for (uint32_t i = 0; i < r->view_count; ++i) {
+		ret = create_and_fill_in_distortion_buffer_for_view(vk, xdev, &bufs[i], &bufs[r->view_count + i],
+		                                                    &bufs[2 * r->view_count + i], i, pre_rotate);
+		VK_CHK_WITH_GOTO(ret, "create_and_fill_in_distortion_buffer_for_view", err_resources);
+	}
+
+	/*
+	 * Command submission.
+	 */
+
+	struct vk_cmd_pool *pool = &r->distortion_pool;
+
+	vk_cmd_pool_lock(pool);
+
+	ret = vk_cmd_pool_create_and_begin_cmd_buffer_locked(vk, pool, 0, &upload_buffer);
+	VK_CHK_WITH_GOTO(ret, "vk_cmd_pool_create_and_begin_cmd_buffer_locked", err_unlock);
+	VK_NAME_COMMAND_BUFFER(vk, upload_buffer, "render_resources distortion command buffer");
+
+	for (uint32_t i = 0; i < RENDER_DISTORTION_IMAGES_COUNT; i++) {
+		/*ret = create_and_queue_upload_locked( //
+		    vk,                               // vk_bundle
+		    pool,                             // pool
+		    upload_buffer,                    // cmd
+		    bufs[i].buffer,                   // src_buffer
+		    &device_memories[i],              // out_image_device_memory
+		    &images[i],                       // out_image
+		    &image_views[i]);                 // out_image_view*/
+		queue_upload_for_first_level_and_layer_locked(vk, upload_buffer, bufs[i].buffer, r->distortion.images[i], (VkExtent2D){RENDER_DISTORTION_IMAGE_DIMENSIONS, RENDER_DISTORTION_IMAGE_DIMENSIONS});
+		//VK_CHK_WITH_GOTO(ret, "create_and_queue_upload_locked", err_cmd);
+	}
+
+	ret = vk_cmd_pool_end_submit_wait_and_free_cmd_buffer_locked(vk, pool, upload_buffer);
+	VK_CHK_WITH_GOTO(ret, "vk_cmd_pool_end_submit_wait_and_free_cmd_buffer_locked", err_cmd);
+
+	vk_cmd_pool_unlock(pool);
+
+	/*
+	 * Write results.
+	 */
+
+	/*r->distortion.pre_rotated = pre_rotate;
+
+	for (uint32_t i = 0; i < RENDER_DISTORTION_IMAGES_COUNT; i++) {
+		r->distortion.device_memories[i] = device_memories[i];
+		r->distortion.images[i] = images[i];
+		r->distortion.image_views[i] = image_views[i];
+	}*/
+
+
+	/*
+	 * Tidy
+	 */
+
+	for (uint32_t i = 0; i < RENDER_DISTORTION_IMAGES_COUNT; i++) {
+		render_buffer_close(vk, &bufs[i]);
+	}
+
+	return true;
+
+
+err_cmd:
+	vk->vkFreeCommandBuffers(vk->device, pool->pool, 1, &upload_buffer);
+
+err_unlock:
+	vk_cmd_pool_unlock(pool);
+
+err_resources:
+	for (uint32_t i = 0; i < RENDER_DISTORTION_IMAGES_COUNT; i++) {
+		D(ImageView, image_views[i]);
+		D(Image, images[i]);
+		DF(Memory, device_memories[i]);
+		render_buffer_close(vk, &bufs[i]);
+	}
+
+	return false;
+}
+
+static bool
 render_distortion_buffer_init(struct render_resources *r,
                               struct vk_bundle *vk,
                               struct xrt_device *xdev,
@@ -361,7 +466,9 @@ render_distortion_buffer_init(struct render_resources *r,
 	for (uint32_t i = 0; i < RENDER_DISTORTION_IMAGES_COUNT(r); i++) {
 		render_buffer_fini(vk, &bufs[i]);
 	}
-
+	xdev->hmd->distortion.dist_vk_bundle = vk;
+	xdev->hmd->distortion.resources = r;
+	xdev->hmd->dist_update = render_distortion_compute_update;
 	return true;
 
 

@@ -155,9 +155,11 @@ struct xrt_hmd_parts
 		//! distortion is subject to the field of view
 		struct xrt_fov fov[XRT_MAX_VIEWS];
 
-			// temporary, for modifying the distortion mesh at runtime (dirty)
-	struct vk_bundle* dist_vk_bundle;
-	struct render_buffer* vbo;
+		// temporary, for modifying the distortion mesh at runtime (dirty)
+		struct vk_bundle* dist_vk_bundle;
+		struct render_resources* resources;
+		bool pre_rotate;
+		struct render_buffer* vbo;
 
 
 	} distortion;
