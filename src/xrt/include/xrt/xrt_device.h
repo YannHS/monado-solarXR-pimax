@@ -158,7 +158,6 @@ struct xrt_hmd_parts
 		// temporary, for modifying the distortion mesh at runtime (dirty)
 		struct vk_bundle* dist_vk_bundle;
 		struct render_resources* resources;
-		bool pre_rotate;
 		struct render_buffer* vbo;
 
 
