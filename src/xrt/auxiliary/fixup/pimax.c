@@ -28,6 +28,11 @@ DEBUG_GET_ONCE_FLOAT_OPTION(pimax_ipd_offs_h1, "PIMAX_IPD_H1", 0.0)
 // required, as the resolution needs to be known
 DEBUG_GET_ONCE_NUM_OPTION(pimax_desired_mode, "XRT_COMPOSITOR_DESIRED_MODE", -1)
 
+// ugly workaround for the 5K XR until monado has proper subpixel shading (it's not as noticeable on other headsets)
+DEBUG_GET_ONCE_FLOAT_OPTION(pimax_img_offs_x_r, "PIMAX_OFFS_X_R", 0.0)
+DEBUG_GET_ONCE_FLOAT_OPTION(pimax_img_offs_x_g, "PIMAX_OFFS_X_G", 0.0)
+DEBUG_GET_ONCE_FLOAT_OPTION(pimax_img_offs_x_b, "PIMAX_OFFS_X_B", 0.0)
+
 
 // for loading meshes from json files instead of having them compiled in
 #define PIMAX_MESHES_DEFAULT_PATH ".config/pimax/meshes"
@@ -386,7 +391,12 @@ bool pimax_compute_distortion_from_mesh(
         float amount = (seperation - dev->mesh_set->meshes[upper_mesh_idx].ipd) / range;
         *out_result = uv_triplet_lerp(triplets[0], triplets[1], amount);
     }
-
+    float dir = view ? -1.f : 1.f;
+    struct pimax_display_properties props;
+    dev->model_funcs->get_display_properties(dev, &props);
+    out_result->r.x += (debug_get_float_option_pimax_img_offs_x_r() / (float)props.pixels_width) * dir;
+    out_result->g.x += (debug_get_float_option_pimax_img_offs_x_g() / (float)props.pixels_width) * dir;
+    out_result->b.x += (debug_get_float_option_pimax_img_offs_x_b() / (float)props.pixels_width) * dir;
 
     return true;
 }
