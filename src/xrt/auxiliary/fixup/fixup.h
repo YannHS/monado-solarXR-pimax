@@ -1,5 +1,7 @@
 #pragma once
-
+#ifdef __cplusplus
+extern "C"{
+#endif
 #include <hidapi/hidapi.h>
 
 #include "xrt/xrt_system.h"
@@ -54,3 +56,6 @@ struct fixup_context{
 
 struct fixup_context* fixup_init_devices();
 void fixup_patch_devices(struct fixup_context* ctx, struct xrt_system_devices *xsysd);
+#ifdef __cplusplus
+}
+#endif

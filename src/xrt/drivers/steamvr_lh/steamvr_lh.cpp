@@ -31,9 +31,7 @@
 
 #include "math/m_api.h"
 
-extern "C"{
 #include "fixup/fixup.h"
-}
 namespace {
 
 DEBUG_GET_ONCE_LOG_OPTION(lh_log, "LIGHTHOUSE_LOG", U_LOGGING_INFO)
