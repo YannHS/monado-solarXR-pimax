@@ -719,7 +719,7 @@ long init_pimax8kx(struct fixup_context* ctx, struct fixup_func_list* funcs, str
 	xrtdev->get_view_poses = pimax_get_view_poses;
 	xrtdev->hmd->blend_modes[0] = XRT_BLEND_MODE_OPAQUE;
 	xrtdev->hmd->blend_mode_count = 1;
-    xrtdev->stage_supported = true;
+    xrtdev->stage_supported = false;
 
     /*
      * the hmd doesn't actually have any inputs, but the IPC client doesn't like that
@@ -882,6 +882,7 @@ void patch_pimax8kx(struct fixup_device* fdev, struct fixup_context* ctx, struct
 
 	struct xrt_device* multidev = multi_create_tracking_override(XRT_TRACKING_OVERRIDE_DIRECT,
 		&dev->base.base, xsysd->static_roles.head, XRT_INPUT_GENERIC_HEAD_POSE, &ident);
+    xsysd->static_roles.head->device_type = XRT_DEVICE_TYPE_UNKNOWN;    // make u_device_assign_xdev_roles work correctly
 	xsysd->static_roles.head = multidev;
     xsysd->xdevs[xsysd->xdev_count++] = multidev;
 
