@@ -100,7 +100,7 @@ bool pimax_compute_distortion2(
 static void
 pimax_get_view_poses(struct xrt_device *xdev,
                            const struct xrt_vec3 *default_eye_relation,
-                           uint64_t at_timestamp_ns,
+                           int64_t at_timestamp_ns,
                            uint32_t view_count,
                            struct xrt_space_relation *out_head_relation,
                            struct xrt_fov *out_fovs,
@@ -783,7 +783,7 @@ long init_pimax8kx(struct fixup_context* ctx, struct fixup_func_list* funcs, str
 static void
 pimax_get_view_poses(struct xrt_device *xdev,
                            const struct xrt_vec3 *default_eye_relation,
-                           uint64_t at_timestamp_ns,
+                           int64_t at_timestamp_ns,
                            uint32_t view_count,
                            struct xrt_space_relation *out_head_relation,
                            struct xrt_fov *out_fovs,
