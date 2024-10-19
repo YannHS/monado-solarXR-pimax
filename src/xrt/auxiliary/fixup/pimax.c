@@ -769,7 +769,7 @@ long init_pimax8kx(struct fixup_context* ctx, struct fixup_func_list* funcs, str
 	xrtdev->destroy = pimax_destroy;
 	xrtdev->device_type = XRT_DEVICE_TYPE_HMD;
 	xrtdev->name = XRT_DEVICE_GENERIC_HMD;
-	xrtdev->update_inputs = pimax_update_inputs;
+	xrtdev->update_inputs = u_device_noop_update_inputs;
 	xrtdev->hmd = U_TYPED_CALLOC(struct xrt_hmd_parts);
 	xrtdev->hmd->view_count = 2;
 	xrtdev->hmd->distortion.models =  XRT_DISTORTION_MODEL_COMPUTE;
