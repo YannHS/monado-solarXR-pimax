@@ -43,17 +43,19 @@ DEBUG_GET_ONCE_FLOAT_OPTION(pimax_img_offs_x_b, "PIMAX_OFFS_X_B", 0.0)
 void pimax_8kx_get_display_props(struct pimax_device* dev, struct pimax_display_properties* out_props);
 void pimax_5ks_get_display_props(struct pimax_device* dev, struct pimax_display_properties* out_props);
 void pimax_p2d_get_display_props(struct pimax_device* dev, struct pimax_display_properties* out_props);
+void pimax_p2c_get_display_props(struct pimax_device* dev, struct pimax_display_properties* out_props);
 void pimax_p2b_get_display_props(struct pimax_device* dev, struct pimax_display_properties* out_props);
 void pimax_p2ea_get_display_props(struct pimax_device* dev, struct pimax_display_properties* out_props);
-
+void pimax_p2z_get_display_props(struct pimax_device* dev, struct pimax_display_properties* out_props);
 
 struct pimax_model_config model_configs[] = {
     {L"Pimax P2EA", "Pimax 8K Plus", "p2ea.json", {pimax_p2ea_get_display_props}},
     {L"Pimax P2A", "Pimax 5K Super", "p2a.json", {pimax_5ks_get_display_props}},
-    {L"Pimax P2C", "Pimax 5K Super", "p2c.json", {pimax_5ks_get_display_props}},
+    {L"Pimax P2C", "Pimax 5K Super", "p2c.json", {pimax_p2c_get_display_props}},
     {L"Pimax P2N", "Pimax 8KX", "p2n.json", {pimax_8kx_get_display_props}},
     {L"Pimax P2D", "Pimax 5K+", "p2d.json", {pimax_p2d_get_display_props}},
     {L"Pimax P2B", "Pimax 5K XR", "p2b.json", {pimax_p2b_get_display_props}},
+    {L"Pimax P2Z", "Pimax 5K Super", "p2z.json", {pimax_p2z_get_display_props}},
 };
 
 
@@ -152,6 +154,31 @@ void pimax_p2d_get_display_props(struct pimax_device* dev, struct pimax_display_
 
 }
 
+void pimax_p2c_get_display_props(struct pimax_device* dev, struct pimax_display_properties* out_props){
+    out_props->pixels_width = 1560;
+    out_props->pixels_height = 1440;
+    out_props->nominal_frame_interval_ns = 1000.*1000.*1000./90.;
+    out_props->refresh_rate = 90;
+
+    switch(debug_get_num_option_pimax_desired_mode()){
+        case 1:
+            out_props->nominal_frame_interval_ns = 1000.*1000.*1000./72.;
+            out_props->refresh_rate = 72;
+            break;
+        case 2:
+            // this is the one monado should already choose by default
+            break;
+        case 3:
+            out_props->pixels_width = 1600;
+            out_props->nominal_frame_interval_ns = 1000.*1000.*1000./120.;
+            out_props->refresh_rate = 120;
+            break;
+        default:
+            break;
+    }
+
+}
+
 void pimax_p2ea_get_display_props(struct pimax_device* dev, struct pimax_display_properties* out_props){
     out_props->pixels_width = 2560;
     out_props->pixels_height = 1440;
@@ -195,6 +222,42 @@ void pimax_p2b_get_display_props(struct pimax_device* dev, struct pimax_display_
         default:
             break;
     }
+}
+
+void pimax_p2z_get_display_props(struct pimax_device* dev, struct pimax_display_properties* out_props){
+    out_props->pixels_width = 2464;
+    out_props->pixels_height = 1440;
+    out_props->nominal_frame_interval_ns = 1000.*1000.*1000./90.;
+    out_props->refresh_rate = 90;
+
+    switch(debug_get_num_option_pimax_desired_mode()){
+        case 1:
+            // this is the one monado should already choose by default
+            break;
+        case 2:
+            out_props->pixels_width = 1700;
+            out_props->nominal_frame_interval_ns = 1000.*1000.*1000./120.;
+            out_props->refresh_rate = 120;
+            break;
+        case 3:
+            out_props->pixels_width = 1600;
+            out_props->nominal_frame_interval_ns = 1000.*1000.*1000./144.;
+            out_props->refresh_rate = 144;
+            break;
+        case 4:
+            out_props->pixels_width = 1436;
+            out_props->nominal_frame_interval_ns = 1000.*1000.*1000./160.;
+            out_props->refresh_rate = 160;
+            break;
+        case 5:
+            out_props->pixels_width = 1328;
+            out_props->nominal_frame_interval_ns = 1000.*1000.*1000./180.;
+            out_props->refresh_rate = 180;
+            break;
+        default:
+            break;
+    }
+
 }
 
 // the results don't exactly line up with what I get from the pimax software
