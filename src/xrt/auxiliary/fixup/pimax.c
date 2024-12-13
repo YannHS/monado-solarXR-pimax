@@ -742,7 +742,6 @@ void init_display_p2c(struct pimax_device* dev){
 	hid_send_feature_report(dev->hid_dev, pimax_packet_parallel_projections_off, sizeof(pimax_packet_parallel_projections_off));
     hid_send_feature_report(dev->hid_dev, pimax_keepalive, sizeof(pimax_keepalive));
     hid_send_feature_report(dev->hid_dev, pimax_init2, sizeof(pimax_init2));
-	hid_send_feature_report(dev->hid_dev, pimax_hmd_power, sizeof(pimax_hmd_power));
 }
 
 long init_pimax8kx(struct fixup_context* ctx, struct fixup_func_list* funcs, struct hid_device_info* devinfo){
