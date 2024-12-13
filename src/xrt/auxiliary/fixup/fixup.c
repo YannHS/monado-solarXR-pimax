@@ -1,3 +1,6 @@
+// Copyright 2024, Coreforge
+// SPDX-License-Identifier: BSL-1.0
+
 #include "fixup.h"
 
 #include "util/u_misc.h"

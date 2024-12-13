@@ -1,3 +1,6 @@
+// Copyright 2024, Coreforge
+// SPDX-License-Identifier: BSL-1.0
+
 #pragma once
 #ifdef __cplusplus
 extern "C"{

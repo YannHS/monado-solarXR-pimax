@@ -1,3 +1,5 @@
+// Copyright 2024, Coreforge
+// SPDX-License-Identifier: BSL-1.0
 
 #include "util/u_misc.h"
 #include "util/u_debug.h"
@@ -555,7 +557,7 @@ void* pimax_poll_thread_func(void* ptr){
     struct pimax_device* dev = (struct pimax_device*)ptr;
     while(dev->should_poll){
         pimax_8kx_poll((struct pimax_device*)ptr);
-        os_nanosleep(PIMAX_POLL_WAIT * 1000 * OS_NS_PER_USEC);
+        os_nanosleep(PIMAX_POLL_WAIT * U_TIME_1MS_IN_NS);
     }
     return NULL;
 }
@@ -761,7 +763,7 @@ long init_pimax8kx(struct fixup_context* ctx, struct fixup_func_list* funcs, str
     do{
         if(attempts){
             U_LOG_W("Failed to open Pimax HID device, retrying");
-            os_nanosleep(debug_get_num_option_pimax_hid_delay() * OS_NS_PER_USEC * 1000);
+            os_nanosleep(debug_get_num_option_pimax_hid_delay() * U_TIME_1MS_IN_NS);
         }
 	    dev->hid_dev = hid_open(PIMAX_VID, PIMAX_8KX_PID, NULL);
         attempts++;
