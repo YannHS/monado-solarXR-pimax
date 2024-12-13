@@ -28,6 +28,9 @@ DEBUG_GET_ONCE_FLOAT_OPTION(pimax_ipd_offs_h1, "PIMAX_IPD_H1", 0.0)
 // required, as the resolution needs to be known
 DEBUG_GET_ONCE_NUM_OPTION(pimax_desired_mode, "XRT_COMPOSITOR_DESIRED_MODE", -1)
 
+DEBUG_GET_ONCE_NUM_OPTION(pimax_hid_retry, "PIMAX_HID_RETRY_COUNT", 3)
+DEBUG_GET_ONCE_NUM_OPTION(pimax_hid_delay, "PIMAX_HID_RETRY_DELAY_MS", 1000)
+
 // ugly workaround for the 5K XR until monado has proper subpixel shading (it's not as noticeable on other headsets)
 DEBUG_GET_ONCE_FLOAT_OPTION(pimax_img_offs_x_r, "PIMAX_OFFS_X_R", 0.0)
 DEBUG_GET_ONCE_FLOAT_OPTION(pimax_img_offs_x_g, "PIMAX_OFFS_X_G", 0.0)
@@ -110,6 +113,20 @@ pimax_get_view_poses(struct xrt_device *xdev,
                            struct xrt_space_relation *out_head_relation,
                            struct xrt_fov *out_fovs,
                            struct xrt_pose *out_poses);
+
+/*
+ *  About the display properties specified here (and in the distortion files):
+ *
+ *  The resolution specified is per eye, and rotated. This makes it easier to populate the views.
+ *  
+ *  Example:
+ *      If a headset reports a resolution of 2880x2160 and has the usual layout of the P2 series
+ *      (two portrait mode panels side by side, I'm not aware of headsets with a different layout),
+ *      The height of the screen is the width of the view, and half the width of the screen is the
+ *      height of the view.
+ *      [headset] 2880x2160 -> [view, display props, json] 2160x1440
+ * 
+ **/
 
 void pimax_8kx_get_display_props(struct pimax_device* dev, struct pimax_display_properties* out_props){
     out_props->pixels_width = dev->device_config.upscaling ? 2160 : 3168;
@@ -740,7 +757,15 @@ long init_pimax8kx(struct fixup_context* ctx, struct fixup_func_list* funcs, str
     U_LOG_D("Pimax 8KX init\n");
     os_mutex_lock(&dev->hid_mutex);
 	dev->hid_dev = NULL;
-	dev->hid_dev = hid_open(PIMAX_VID, PIMAX_8KX_PID, NULL);
+    int attempts = 0;
+    do{
+        if(attempts){
+            U_LOG_W("Failed to open Pimax HID device, retrying");
+            os_nanosleep(debug_get_num_option_pimax_hid_delay() * OS_NS_PER_USEC * 1000);
+        }
+	    dev->hid_dev = hid_open(PIMAX_VID, PIMAX_8KX_PID, NULL);
+        attempts++;
+    } while(!dev->hid_dev && attempts < debug_get_num_option_pimax_hid_retry());
 	if(!dev->hid_dev){
         os_mutex_unlock(&dev->hid_mutex);
         os_mutex_destroy(&dev->hid_mutex);
