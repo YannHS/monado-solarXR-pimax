@@ -27,13 +27,13 @@ struct pimax_display_properties{
     float gap;
 };
 
-typedef void(*pimax_display_size_func_t)(struct pimax_device* dev, uint32_t* out_width, uint32_t* out_height);
 typedef void(*pimax_display_get_props_func_t)(struct pimax_device* dev, struct pimax_display_properties* out_props);
+typedef void(*pimax_init_display_func_t)(struct pimax_device* dev);
 
 
 struct pimax_model_funcs{
-    //pimax_display_size_func_t get_display_size;
     pimax_display_get_props_func_t get_display_properties;
+    pimax_init_display_func_t init_display;
 };
 
 struct pimax_model_config{

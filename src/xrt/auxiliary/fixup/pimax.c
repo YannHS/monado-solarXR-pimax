@@ -48,14 +48,17 @@ void pimax_p2b_get_display_props(struct pimax_device* dev, struct pimax_display_
 void pimax_p2ea_get_display_props(struct pimax_device* dev, struct pimax_display_properties* out_props);
 void pimax_p2z_get_display_props(struct pimax_device* dev, struct pimax_display_properties* out_props);
 
+void init_display_8kx(struct pimax_device* dev);
+void init_display_p2c(struct pimax_device* dev);
+
 struct pimax_model_config model_configs[] = {
-    {L"Pimax P2EA", "Pimax 8K Plus", "p2ea.json", {pimax_p2ea_get_display_props}},
-    {L"Pimax P2A", "Pimax 5K Super", "p2a.json", {pimax_5ks_get_display_props}},
-    {L"Pimax P2C", "Pimax 5K Super", "p2c.json", {pimax_p2c_get_display_props}},
-    {L"Pimax P2N", "Pimax 8KX", "p2n.json", {pimax_8kx_get_display_props}},
-    {L"Pimax P2D", "Pimax 5K+", "p2d.json", {pimax_p2d_get_display_props}},
-    {L"Pimax P2B", "Pimax 5K XR", "p2b.json", {pimax_p2b_get_display_props}},
-    {L"Pimax P2Z", "Pimax 5K Super", "p2z.json", {pimax_p2z_get_display_props}},
+    {L"Pimax P2EA", "Pimax 8K Plus", "p2ea.json", {pimax_p2ea_get_display_props, init_display_8kx}},
+    {L"Pimax P2A", "Pimax 5K Super", "p2a.json", {pimax_5ks_get_display_props, init_display_8kx}},
+    {L"Pimax P2C", "Pimax 5K Super", "p2c.json", {pimax_p2c_get_display_props, init_display_p2c}},
+    {L"Pimax P2N", "Pimax 8KX", "p2n.json", {pimax_8kx_get_display_props, init_display_8kx}},
+    {L"Pimax P2D", "Pimax 5K+", "p2d.json", {pimax_p2d_get_display_props, init_display_8kx}},
+    {L"Pimax P2B", "Pimax 5K XR", "p2b.json", {pimax_p2b_get_display_props, init_display_8kx}},
+    {L"Pimax P2Z", "Pimax 5K Super", "p2z.json", {pimax_p2z_get_display_props, init_display_8kx}},
 };
 
 
@@ -112,7 +115,7 @@ void pimax_8kx_get_display_props(struct pimax_device* dev, struct pimax_display_
     out_props->pixels_width = dev->device_config.upscaling ? 2160 : 3168;
     out_props->pixels_height = dev->device_config.upscaling ? 1440 : 2160;
 
-    out_props->nominal_frame_interval_ns = 1000.*1000.*1000./(dev->device_config.upscaling ? 110. : 90.);
+    //out_props->nominal_frame_interval_ns = 1000.*1000.*1000./(dev->device_config.upscaling ? 110. : 90.);
     out_props->refresh_rate = dev->device_config.upscaling ? 110 : 90;
 }
 
@@ -155,7 +158,7 @@ void pimax_p2d_get_display_props(struct pimax_device* dev, struct pimax_display_
 }
 
 void pimax_p2c_get_display_props(struct pimax_device* dev, struct pimax_display_properties* out_props){
-    out_props->pixels_width = 1560;
+    out_props->pixels_width = 2560;
     out_props->pixels_height = 1440;
     out_props->nominal_frame_interval_ns = 1000.*1000.*1000./90.;
     out_props->refresh_rate = 90;
@@ -708,6 +711,21 @@ void pimax_load_meshes_from_file(struct pimax_device* dev, const char* path){
     }
 }
 
+// used for most HMDs, but mostly based on packets recorded from a P2N
+void init_display_8kx(struct pimax_device* dev){
+    hid_send_feature_report(dev->hid_dev, pimax_init2, sizeof(pimax_init2));
+	hid_send_feature_report(dev->hid_dev, pimax_packet_parallel_projections_off, sizeof(pimax_packet_parallel_projections_off));
+	hid_send_feature_report(dev->hid_dev, pimax_hmd_power, sizeof(pimax_hmd_power));
+    hid_send_feature_report(dev->hid_dev, pimax_keepalive, sizeof(pimax_keepalive));
+}
+
+void init_display_p2c(struct pimax_device* dev){
+	hid_send_feature_report(dev->hid_dev, pimax_packet_parallel_projections_off, sizeof(pimax_packet_parallel_projections_off));
+    hid_send_feature_report(dev->hid_dev, pimax_keepalive, sizeof(pimax_keepalive));
+    hid_send_feature_report(dev->hid_dev, pimax_init2, sizeof(pimax_init2));
+	hid_send_feature_report(dev->hid_dev, pimax_hmd_power, sizeof(pimax_hmd_power));
+}
+
 long init_pimax8kx(struct fixup_context* ctx, struct fixup_func_list* funcs, struct hid_device_info* devinfo){
     if(devinfo->interface_number) return 0;
 
@@ -757,10 +775,7 @@ long init_pimax8kx(struct fixup_context* ctx, struct fixup_func_list* funcs, str
     }
 
 
-    hid_send_feature_report(dev->hid_dev, pimax_init2, sizeof(pimax_init2));
-	hid_send_feature_report(dev->hid_dev, pimax_packet_parallel_projections_off, sizeof(pimax_packet_parallel_projections_off));
-	hid_send_feature_report(dev->hid_dev, pimax_hmd_power, sizeof(pimax_hmd_power));
-    hid_send_feature_report(dev->hid_dev, pimax_keepalive, sizeof(pimax_keepalive));
+    dev->model_funcs->init_display(dev);
     pimax_8kx_read_config(dev);
     os_mutex_unlock(&dev->hid_mutex);
 
@@ -907,7 +922,7 @@ void pimax_fill_display(struct pimax_device* dev,struct pimax_display_properties
     hmd = dev->base.base.hmd;
     hmd->screens[0].w_pixels = 2*display_props->pixels_height;
     hmd->screens[0].h_pixels = display_props->pixels_width;
-    hmd->screens[0].nominal_frame_interval_ns = display_props->nominal_frame_interval_ns;
+    //hmd->screens[0].nominal_frame_interval_ns = display_props->nominal_frame_interval_ns;
     for(int i = 0; i < 2; i++){
         hmd->views[i].viewport.w_pixels = display_props->pixels_height;
         hmd->views[i].viewport.h_pixels = display_props->pixels_width;
