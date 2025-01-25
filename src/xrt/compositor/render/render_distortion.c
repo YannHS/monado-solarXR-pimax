@@ -325,7 +325,7 @@ render_distortion_compute_update(struct xrt_device *xdev)
 	VK_CHK_WITH_GOTO(ret, "vk_cmd_pool_create_and_begin_cmd_buffer_locked", err_unlock);
 	VK_NAME_COMMAND_BUFFER(vk, upload_buffer, "render_resources distortion command buffer");
 
-	for (uint32_t i = 0; i < RENDER_DISTORTION_IMAGES_COUNT; i++) {
+	for (uint32_t i = 0; i < RENDER_DISTORTION_IMAGES_COUNT(r); i++) {
 		/*ret = create_and_queue_upload_locked( //
 		    vk,                               // vk_bundle
 		    pool,                             // pool
@@ -360,8 +360,8 @@ render_distortion_compute_update(struct xrt_device *xdev)
 	 * Tidy
 	 */
 
-	for (uint32_t i = 0; i < RENDER_DISTORTION_IMAGES_COUNT; i++) {
-		render_buffer_close(vk, &bufs[i]);
+	for (uint32_t i = 0; i < RENDER_DISTORTION_IMAGES_COUNT(r); i++) {
+		render_buffer_fini(vk, &bufs[i]);
 	}
 
 	return true;
@@ -374,11 +374,11 @@ err_unlock:
 	vk_cmd_pool_unlock(pool);
 
 err_resources:
-	for (uint32_t i = 0; i < RENDER_DISTORTION_IMAGES_COUNT; i++) {
+	for (uint32_t i = 0; i < RENDER_DISTORTION_IMAGES_COUNT(r); i++) {
 		D(ImageView, image_views[i]);
 		D(Image, images[i]);
 		DF(Memory, device_memories[i]);
-		render_buffer_close(vk, &bufs[i]);
+		render_buffer_fini(vk, &bufs[i]);
 	}
 
 	return false;
