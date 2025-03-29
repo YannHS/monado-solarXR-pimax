@@ -657,7 +657,7 @@ message(STATUS "#    DRIVER_VIVE:                 ${XRT_BUILD_DRIVER_VIVE}")
 message(STATUS "#    DRIVER_WMR:                  ${XRT_BUILD_DRIVER_WMR}")
 message(STATUS "#    DRIVER_XREAL_AIR:            ${XRT_BUILD_DRIVER_XREAL_AIR}")
 message(STATUS "#    DRIVER_STEAMVR_LIGHTHOUSE:   ${XRT_BUILD_DRIVER_STEAMVR_LIGHTHOUSE}")
-+message(STATUS "#    DRIVER_SOLARXR:              ${XRT_BUILD_DRIVER_SOLARXR}")
+message(STATUS "#    DRIVER_SOLARXR:              ${XRT_BUILD_DRIVER_SOLARXR}")
 message(STATUS "#####----- Config -----#####")
 # cmake-format: on
 
