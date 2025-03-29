@@ -201,6 +201,10 @@ if(XRT_BUILD_DRIVER_SIMULAVR)
 	target_link_libraries(target_lists PRIVATE drv_svr)
 endif()
 
+if(XRT_BUILD_DRIVER_SOLARXR)
+	target_link_libraries(target_lists PRIVATE drv_solarxr)
+endif()
+
 ####
 # Instance
 #

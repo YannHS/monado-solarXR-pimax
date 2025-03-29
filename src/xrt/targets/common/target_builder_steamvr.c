@@ -34,6 +34,10 @@
 #include "xrt/xrt_space.h"
 #include "util/u_space_overseer.h"
 
+#ifdef XRT_BUILD_DRIVER_SOLARXR
+#include "solarxr/solarxr_interface.h"
+#endif
+
 #ifndef XRT_BUILD_DRIVER_STEAMVR_LIGHTHOUSE
 #error "This builder requires the SteamVR Lighthouse driver"
 #endif
@@ -115,6 +119,17 @@ steamvr_destroy(struct xrt_builder *xb)
 	free(svrb);
 }
 
+#ifdef XRT_BUILD_DRIVER_SOLARXR
+static void
+destroy_system_devices_solarxr(struct xrt_system_devices *xsysd)
+{
+	void _Z7destroyP18xrt_system_devices(struct xrt_system_devices * xsysd);
+
+	solarxr_device_set_feeder_devices(xsysd->static_roles.body, NULL, 0);
+	_Z7destroyP18xrt_system_devices(xsysd);
+}
+#endif
+
 static xrt_result_t
 steamvr_open_system(struct xrt_builder *xb,
                     cJSON *config,
@@ -150,6 +165,18 @@ steamvr_open_system(struct xrt_builder *xb,
 
 	svrb->right_ht = u_system_devices_get_ht_device_right(xsysd);
 	xsysd->static_roles.hand_tracking.right = svrb->right_ht;
+
+#ifdef XRT_BUILD_DRIVER_SOLARXR
+	const uint32_t count =
+	    solarxr_device_create_xdevs(xsysd->static_roles.head->tracking_origin, &xsysd->xdevs[xsysd->xdev_count],
+	                                ARRAY_SIZE(xsysd->xdevs) - xsysd->xdev_count);
+	if (count != 0) {
+		xsysd->static_roles.body = xsysd->xdevs[xsysd->xdev_count];
+		solarxr_device_set_feeder_devices(xsysd->static_roles.body, xsysd->xdevs, xsysd->xdev_count);
+		xsysd->destroy = destroy_system_devices_solarxr;
+	}
+	xsysd->xdev_count += count;
+#endif
 
 	/*
 	 * Space overseer.

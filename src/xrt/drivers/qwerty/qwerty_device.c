@@ -315,6 +315,8 @@ qwerty_hmd_create(void)
 
 	xd->inputs[0].name = XRT_INPUT_GENERIC_HEAD_POSE;
 
+	xd->orientation_tracking_supported = true;
+	xd->position_tracking_supported = true;
 	xd->update_inputs = u_device_noop_update_inputs;
 	xd->get_tracked_pose = qwerty_get_tracked_pose;
 	xd->get_view_poses = u_device_get_view_poses;
@@ -367,6 +369,8 @@ qwerty_controller_create(bool is_left, struct qwerty_hmd *qhmd)
 	xd->binding_profiles = binding_profiles;
 	xd->binding_profile_count = ARRAY_SIZE(binding_profiles);
 
+	xd->orientation_tracking_supported = true;
+	xd->position_tracking_supported = true;
 	xd->update_inputs = qwerty_update_inputs;
 	xd->get_tracked_pose = qwerty_get_tracked_pose;
 	xd->set_output = qwerty_set_output;

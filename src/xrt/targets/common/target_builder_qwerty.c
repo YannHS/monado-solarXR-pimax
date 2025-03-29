@@ -18,6 +18,10 @@
 
 #include "qwerty/qwerty_interface.h"
 
+#ifdef XRT_BUILD_DRIVER_SOLARXR
+#include "solarxr/solarxr_interface.h"
+#endif
+
 #include <assert.h>
 
 
@@ -67,6 +71,16 @@ qwerty_estimate_system(struct xrt_builder *xb,
 	return XRT_SUCCESS;
 }
 
+#ifdef XRT_BUILD_DRIVER_SOLARXR
+static void
+destroy_system_devices_solarxr(struct xrt_system_devices *xsysd)
+{
+	solarxr_device_set_feeder_devices(xsysd->static_roles.body, NULL, 0);
+	u_system_devices_close(xsysd);
+	free(xsysd);
+}
+#endif
+
 static xrt_result_t
 qwerty_open_system_impl(struct xrt_builder *xb,
                         cJSON *config,
@@ -99,6 +113,17 @@ qwerty_open_system_impl(struct xrt_builder *xb,
 	ubrh->head = head;
 	ubrh->left = left;
 	ubrh->right = right;
+
+#ifdef XRT_BUILD_DRIVER_SOLARXR
+	const uint32_t count = solarxr_device_create_xdevs(head->tracking_origin, &xsysd->xdevs[xsysd->xdev_count],
+	                                                   ARRAY_SIZE(xsysd->xdevs) - xsysd->xdev_count);
+	if (count != 0) {
+		xsysd->static_roles.body = xsysd->xdevs[xsysd->xdev_count];
+		solarxr_device_set_feeder_devices(xsysd->static_roles.body, xsysd->xdevs, xsysd->xdev_count);
+		xsysd->destroy = destroy_system_devices_solarxr;
+	}
+	xsysd->xdev_count += count;
+#endif
 
 	return XRT_SUCCESS;
 }

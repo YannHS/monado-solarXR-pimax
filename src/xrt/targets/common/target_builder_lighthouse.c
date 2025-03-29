@@ -58,6 +58,10 @@
 #include "opengloves/opengloves_interface.h"
 #endif
 
+#ifdef XRT_BUILD_DRIVER_SOLARXR
+#include "solarxr/solarxr_interface.h"
+#endif
+
 #if defined(XRT_BUILD_DRIVER_SURVIVE)
 #define DEFAULT_DRIVER "survive"
 #else
@@ -509,6 +513,16 @@ try_add_opengloves(struct xrt_device *left,
 #endif
 }
 
+#ifdef XRT_BUILD_DRIVER_SOLARXR
+static void
+destroy_system_devices_solarxr(struct xrt_system_devices *xsysd)
+{
+	solarxr_device_set_feeder_devices(xsysd->static_roles.body, NULL, 0);
+	u_system_devices_close(xsysd);
+	free(xsysd);
+}
+#endif
+
 static xrt_result_t
 lighthouse_open_system_impl(struct xrt_builder *xb,
                             cJSON *config,
@@ -735,6 +749,17 @@ end_valve_index:
 		// We only want to try to add opengloves if we aren't optically tracking hands
 		try_add_opengloves(left, right, &left_ht, &right_ht);
 	}
+
+#ifdef XRT_BUILD_DRIVER_SOLARXR
+	const uint32_t count = solarxr_device_create_xdevs(head->tracking_origin, &xsysd->xdevs[xsysd->xdev_count],
+	                                                   ARRAY_SIZE(xsysd->xdevs) - xsysd->xdev_count);
+	if (count != 0) {
+		xsysd->static_roles.body = xsysd->xdevs[xsysd->xdev_count];
+		solarxr_device_set_feeder_devices(xsysd->static_roles.body, xsysd->xdevs, xsysd->xdev_count);
+		xsysd->destroy = destroy_system_devices_solarxr;
+	}
+	xsysd->xdev_count += count;
+#endif
 
 	// Assign to role(s).
 	ubrh->head = head;
